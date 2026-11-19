@@ -1,0 +1,66 @@
+{
+  "harness_sha": "d4444cf9a9376915359429784f7e179c07249c6580a1bbf751dabfccbeac5d16",
+  "metrics": [
+    {
+      "id": "citation_support",
+      "label": "Cites support",
+      "kind": "float",
+      "scale": 1
+    },
+    {
+      "id": "verified_rate",
+      "label": "Quote found",
+      "kind": "float",
+      "scale": 1
+    },
+    {
+      "id": "competitor_recall",
+      "label": "Recall",
+      "kind": "float",
+      "scale": 1
+    },
+    {
+      "id": "gap_grounding",
+      "label": "Gaps grounded",
+      "kind": "float",
+      "scale": 1
+    }
+  ],
+  "perf_fields": [
+    {
+      "id": "cost_usd",
+      "label": "Agent cost",
+      "unit": "$"
+    },
+    {
+      "id": "judge_cost_usd",
+      "label": "Judge cost",
+      "unit": "$"
+    },
+    {
+      "id": "latency_s",
+      "label": "Latency",
+      "unit": "s"
+    },
+    {
+      "id": "in_tokens",
+      "label": "In tokens"
+    },
+    {
+      "id": "out_tokens",
+      "label": "Out tokens"
+    },
+    {
+      "id": "exa_requests",
+      "label": "Exa requests"
+    },
+    {
+      "id": "competitors",
+      "label": "Competitors"
+    }
+  ],
+  "harness_paths": [
+    "evals/run_eval.py",
+    "evals/grading.py"
+  ]
+}

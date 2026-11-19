@@ -14,7 +14,7 @@
 id = "meeting-notes-sales"
 tags = ["b2b-saas", "crowded"]
 idea = "An AI notetaker that joins Zoom and Google Meet sales calls, writes summaries, and pushes notes to the CRM."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Gong", domains = ["gong.io"] },
   { name = "Fireflies.ai", domains = ["fireflies.ai"] },
@@ -26,7 +26,7 @@ expected = [
 id = "scheduling-links"
 tags = ["b2b-saas", "crowded"]
 idea = "A scheduling tool where professionals share a booking link so clients can pick a meeting time that syncs with their calendar."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Calendly", domains = ["calendly.com"] },
   { name = "Cal.com", domains = ["cal.com"] },
@@ -38,7 +38,7 @@ expected = [
 id = "freelancer-invoicing"
 tags = ["b2b-saas", "smb"]
 idea = "Invoicing, expense tracking, and simple bookkeeping software for freelancers and solo consultants."
-reviewed = false
+reviewed = true
 expected = [
   { name = "FreshBooks", domains = ["freshbooks.com"] },
   { name = "Wave", domains = ["waveapps.com", "wave.com"] },
@@ -50,7 +50,7 @@ expected = [
 id = "error-monitoring"
 tags = ["dev-tools", "crowded"]
 idea = "An error monitoring service that captures crashes and exceptions from web and mobile apps and alerts developers."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Sentry", domains = ["sentry.io"] },
   { name = "Bugsnag", domains = ["bugsnag.com"] },
@@ -62,7 +62,7 @@ expected = [
 id = "feature-flags"
 tags = ["dev-tools", "crowded"]
 idea = "A feature flag platform that lets engineering teams roll out features gradually and run A/B tests without redeploying."
-reviewed = false
+reviewed = true
 expected = [
   { name = "LaunchDarkly", domains = ["launchdarkly.com"] },
   { name = "Statsig", domains = ["statsig.com"] },
@@ -75,7 +75,7 @@ expected = [
 id = "language-learning"
 tags = ["consumer", "crowded"]
 idea = "A mobile app for learning a new language through short daily lessons and games."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Duolingo", domains = ["duolingo.com"] },
   { name = "Babbel", domains = ["babbel.com"] },
@@ -87,7 +87,7 @@ expected = [
 id = "meal-kits"
 tags = ["consumer", "physical-product"]
 idea = "A weekly meal kit delivery service with recipes and pre-portioned ingredients for home cooks."
-reviewed = false
+reviewed = true
 expected = [
   { name = "HelloFresh", domains = ["hellofresh.com"] },
   { name = "Blue Apron", domains = ["blueapron.com"] },
@@ -99,7 +99,7 @@ expected = [
 id = "meditation-app"
 tags = ["consumer", "crowded"]
 idea = "A meditation and sleep app with guided sessions, sleep stories, and breathing exercises."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Headspace", domains = ["headspace.com"] },
   { name = "Calm", domains = ["calm.com"] },
@@ -110,7 +110,7 @@ expected = [
 id = "freelance-marketplace"
 tags = ["marketplace", "crowded"]
 idea = "An online marketplace where businesses hire freelance designers, writers, and developers for projects."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Upwork", domains = ["upwork.com"] },
   { name = "Fiverr", domains = ["fiverr.com"] },
@@ -122,7 +122,7 @@ expected = [
 id = "salon-booking"
 tags = ["vertical-saas", "smb"]
 idea = "Online booking, payments, and client management software for hair salons and barbershops."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Vagaro", domains = ["vagaro.com"] },
   { name = "Fresha", domains = ["fresha.com"] },
@@ -134,7 +134,7 @@ expected = [
 id = "video-doorbell"
 tags = ["hardware", "crowded"]
 idea = "A smart video doorbell for homes that sends phone alerts and records visitors."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Ring", domains = ["ring.com"] },
   { name = "Google Nest", domains = ["store.google.com", "nest.com"] },
@@ -147,7 +147,7 @@ expected = [
 id = "startup-corporate-cards"
 tags = ["fintech", "crowded"]
 idea = "Corporate cards with built-in expense management and receipt capture for startups."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Brex", domains = ["brex.com"] },
   { name = "Ramp", domains = ["ramp.com"] },
@@ -159,7 +159,7 @@ expected = [
 id = "online-therapy"
 tags = ["health", "regulated"]
 idea = "Online therapy with licensed therapists over video, phone, and messaging, paid by subscription."
-reviewed = false
+reviewed = true
 expected = [
   { name = "BetterHelp", domains = ["betterhelp.com"] },
   { name = "Talkspace", domains = ["talkspace.com"] },
@@ -170,7 +170,7 @@ expected = [
 id = "vet-practice-software"
 tags = ["vertical-saas", "niche"]
 idea = "Cloud practice management software for veterinary clinics: appointments, medical records, and billing."
-reviewed = false
+reviewed = true
 expected = [
   { name = "ezyVet", domains = ["ezyvet.com"] },
   { name = "Shepherd", domains = ["shepherd.vet"] },
@@ -182,7 +182,7 @@ expected = [
 id = "law-practice-software"
 tags = ["vertical-saas", "niche"]
 idea = "Practice management software for small law firms: case management, time tracking, billing, and a client portal."
-reviewed = false
+reviewed = true
 expected = [
   { name = "Clio", domains = ["clio.com"] },
   { name = "MyCase", domains = ["mycase.com"] },

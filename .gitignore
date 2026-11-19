@@ -16,3 +16,6 @@ src/reports/
 .claude/hillclimb/**/report.html
 .claude/hillclimb/**/state.json
 .claude/hillclimb/**/trajectory/
+
+# Superseded eval runs
+.claude/hillclimb/research-report-pilot-*/

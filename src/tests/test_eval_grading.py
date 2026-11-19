@@ -120,3 +120,18 @@ def test_runner_end_to_end_with_failures_and_resume(monkeypatch, tmp_path):
     monkeypatch.setattr(run_eval.pipeline, "run_research", lambda idea, **k: calls.append(idea) or flaky(idea, **k))
     run_eval.main()
     assert len(calls) == 1 and "veterinary" in calls[0]
+
+
+def test_judge_calls_are_recorded_for_cost(monkeypatch):
+    report = _report(monkeypatch)
+
+    def fake_structured(system, prompt, schema, **kw):
+        telemetry.current().add(telemetry.LLMCall("judge", "claude-sonnet-5-5", system, prompt, None,
+                                                  1000, 100, 0, 0, 0.1, "end_turn"))
+        ids = [line.split('"')[1] for line in prompt.splitlines() if line.startswith("<item id=")]
+        return grading.JudgeResult(verdicts=[grading.Verdict(id=i, verdict="supported", reason="") for i in ids])
+
+    monkeypatch.setattr(grading.llm, "structured", fake_structured)
+    with telemetry.recording() as rec:
+        grading.grade_citations(report)
+    assert len(rec.llm_calls) == 1 and grading.cost_usd(rec.llm_calls) > 0

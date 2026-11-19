@@ -7,6 +7,7 @@
 #   competitor_recall share of the case's expected competitors that the report selected
 #   gap_grounding     share of market gaps backed by at least one verified claim
 
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Literal
@@ -125,8 +126,12 @@ def _judge_company(company: str, items: list[dict], model: str) -> dict[str, Ver
 def grade_citations(report: Report, model: str = JUDGE_MODEL, workers: int = 4) -> CitationGrade:
     jobs = [(comp.name, _items_for(comp)) for comp in report.competitors]
     jobs = [(name, items) for name, items in jobs if items]
+    # Plain thread pools don't inherit context variables; copy the context per job so judge
+    # calls land on the caller's usage recorder (otherwise judge cost reads as $0).
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(lambda j: _judge_company(j[0], j[1], model), jobs))
+        futures = [pool.submit(contextvars.copy_context().run, _judge_company, name, items, model)
+                   for name, items in jobs]
+        results = [f.result() for f in futures]
 
     counts = {"supported": 0, "partial": 0, "unsupported": 0}
     missing, problems = 0, []
