@@ -68,7 +68,7 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
    ```bash
    docker compose run --rm api python -m app.research "AI meeting notes for small law firms"
    ```
-   It prints a Markdown report and saves `.md` and `.json` copies to `src/reports/`. Each claim and price comes with its source URL and a verbatim quote from that page. Options: `--max-competitors N`, `-v`.
+   It prints a Markdown report and saves `.md` and `.json` copies to `src/reports/`. The agent is a LangGraph graph (`plan → find_competitors → research_competitor ×N in parallel → verify → analyze_gaps`). Each claim and price comes with its source URL and a verbatim quote. A claim counts as verified only if code finds its quote on the cited page. Anything that fails is listed under _Flagged_, and the market-gap analysis may cite only verified claims. Options: `--max-competitors N`, `-v`.
 
    Run the offline tests (no API keys needed):
    ```bash

@@ -1,16 +1,32 @@
-# Phase 1 research loop: idea -> search queries -> competitors -> fetched pages -> sourced claims.
+# Phase 2 research agent as a LangGraph graph:
+#
+#   plan -> find_competitors -> research_competitor (one per competitor, in parallel)
+#        -> verify -> analyze_gaps -> END
+#
+# Claude plans, selects, extracts and analyzes; code checks every quote against the
+# fetched page text, and the gap analysis may only cite claims that passed that check.
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import operator
 from datetime import datetime, timezone
+from typing import Annotated, TypedDict
 from xml.sax.saxutils import escape, quoteattr
 
-from app.research import llm, search
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
+
+from app.research import llm, search, verify
 from app.research.schemas import (
+    Claim,
+    CompetitorCandidate,
     CompetitorExtraction,
     CompetitorProfile,
     CompetitorSelection,
+    GapAnalysis,
+    MarketGap,
+    PricePlan,
     Report,
+    ReportStats,
     SearchPlan,
     Source,
 )
@@ -29,32 +45,80 @@ of the idea. Skip directories, blogs, news articles, review sites, and unrelated
 Use the homepage URL exactly as it appears in the candidate list; never invent a URL."""
 
 EXTRACT_SYSTEM = """You extract facts about one company from the web pages provided. \
+Pages with kind="site" are the company's own website; pages with kind="review" are \
+third-party reviews and discussions written by customers.
 Rules:
 - Use only information stated in the pages. Do not use prior knowledge.
 - Every claim and price plan must cite the URL of the page it came from, copied exactly \
 from that page's url attribute.
 - The quote must be copied character-for-character from that page's text: a short excerpt \
-(one sentence or phrase) that directly supports the claim. Do not paraphrase or fix typos \
-in quotes.
+(one sentence or phrase, at least a few words) that directly supports the claim. Do not \
+paraphrase, fix typos, or merge text from different places. Quotes are checked \
+automatically against the page, and any quote that doesn't match is flagged.
 - If the pages don't show pricing, return an empty pricing list. Don't guess prices.
 - Prefer specific, decision-useful facts (who it's for, what it does, notable features, \
 limits, pricing model) over marketing slogans.
-- Record weaknesses only when the pages state them (e.g. missing features, limits on \
-cheaper plans)."""
+- From review pages, record what customers praise (customer_praise) and complain about \
+(customer_complaint). Only include reviews that are clearly about this company.
+- Record weaknesses from the company's own pages only when they are stated there \
+(e.g. missing features, limits on cheaper plans)."""
+
+GAPS_SYSTEM = """You find gaps in a market for a founder. You receive verified facts about \
+competitors, each with an ID. Identify where competitors are weak, missing something, \
+overpriced, or underserving a customer group, and how the founder's idea could stand out.
+Rules:
+- Base every gap only on the facts provided, and list the IDs of the facts that support it.
+- Prefer gaps backed by several facts or by customer complaints.
+- Don't repeat the same gap in different words. Return 3-6 gaps, strongest first.
+- If the facts don't support a gap, don't include it."""
 
 
-def plan_queries(idea: str) -> list[str]:
-    plan = llm.structured(PLAN_SYSTEM, f"Business idea:\n{idea}", SearchPlan)
-    return plan.queries
+# --- Graph state -----------------------------------------------------------
 
 
-def select_competitors(idea: str, candidates: list[search.Candidate], limit: int):
+def _merge(a: dict, b: dict) -> dict:
+    return {**a, **b}
+
+
+class ResearchState(TypedDict, total=False):
+    idea: str
+    max_competitors: int
+    queries: list[str]
+    competitors: list[CompetitorCandidate]
+    # Written by parallel research_competitor branches, merged by these reducers.
+    profiles: Annotated[list[CompetitorProfile], operator.add]
+    pages: Annotated[dict[str, str], _merge]
+    errors: Annotated[list[str], operator.add]
+    # Profiles after quote checking, sorted by rank (replaces, not appended).
+    verified_profiles: list[CompetitorProfile]
+    gaps: list[MarketGap]
+
+
+class CompetitorTask(TypedDict):
+    idea: str
+    rank: int
+    competitor: CompetitorCandidate
+
+
+# --- Nodes -----------------------------------------------------------------
+
+
+def plan(state: ResearchState) -> dict:
+    result = llm.structured(PLAN_SYSTEM, f"Business idea:\n{state['idea']}", SearchPlan)
+    log.info("Queries: %s", result.queries)
+    return {"queries": result.queries}
+
+
+def find_competitors(state: ResearchState) -> dict:
+    candidates = search.find_candidates(state["queries"])
+    log.info("Found %d candidate companies", len(candidates))
     listing = "\n\n".join(
         f"- url: {c.url}\n  title: {c.title or ''}\n  snippet: {c.snippet[:400]}"
         for c in candidates
     )
+    limit = state.get("max_competitors", 6)
     prompt = (
-        f"Business idea:\n{idea}\n\nCandidates:\n{listing}\n\n"
+        f"Business idea:\n{state['idea']}\n\nCandidates:\n{listing}\n\n"
         f"Return up to {limit} competitors, most direct first."
     )
     selection = llm.structured(SELECT_SYSTEM, prompt, CompetitorSelection)
@@ -69,69 +133,164 @@ def select_competitors(idea: str, candidates: list[search.Candidate], limit: int
             picked.append(comp.model_copy(update={"homepage_url": known[d]}))
         else:
             log.warning("Dropping competitor %s: URL not in search results", comp.name)
-    return picked[:limit]
+    picked = picked[:limit]
+    log.info("Selected: %s", ", ".join(c.name for c in picked))
+    return {"competitors": picked}
+
+
+def fan_out(state: ResearchState) -> list[Send]:
+    return [
+        Send("research_competitor", {"idea": state["idea"], "rank": i, "competitor": comp})
+        for i, comp in enumerate(state["competitors"], start=1)
+    ]
 
 
 def _format_pages(pages: list[search.Page]) -> str:
     return "\n\n".join(
-        f"<page url={quoteattr(p.url)} title={quoteattr(p.title or '')}>\n{escape(p.text)}\n</page>"
+        f"<page url={quoteattr(p.url)} kind={quoteattr(p.kind)} title={quoteattr(p.title or '')}>\n"
+        f"{escape(p.text)}\n</page>"
         for p in pages
     )
 
 
-def research_competitor(idea: str, comp) -> CompetitorProfile:
-    pages = search.fetch_site(comp.homepage_url)
-    sources = [Source(url=p.url, title=p.title) for p in pages]
-    if not pages:
-        log.warning("No page content fetched for %s", comp.name)
-        return CompetitorProfile(**comp.model_dump(), pricing=[], claims=[], sources=[])
-
-    prompt = (
-        f"The user is researching competitors for this idea:\n{idea}\n\n"
-        f"Company: {comp.name}\n\nPages:\n{_format_pages(pages)}"
-    )
-    extraction = llm.structured(EXTRACT_SYSTEM, prompt, CompetitorExtraction)
-
-    # Discard anything citing a URL we didn't fetch.
-    fetched = {p.url for p in pages}
-    claims = [c for c in extraction.claims if c.source_url in fetched]
-    pricing = [p for p in extraction.pricing if p.source_url in fetched]
-    dropped = len(extraction.claims) - len(claims) + len(extraction.pricing) - len(pricing)
-
-    return CompetitorProfile(
-        **comp.model_dump(),
-        pricing=pricing,
-        claims=claims,
-        sources=sources,
-        dropped_items=dropped,
-    )
-
-
-def run_research(idea: str, max_competitors: int = 6, workers: int = 4) -> Report:
-    log.info("Planning search queries")
-    queries = plan_queries(idea)
-    log.info("Queries: %s", queries)
-
-    candidates = search.find_candidates(queries)
-    log.info("Found %d candidate companies", len(candidates))
-
-    competitors = select_competitors(idea, candidates, max_competitors)
-    log.info("Selected: %s", ", ".join(c.name for c in competitors))
-
-    def _safe(comp):
+def research_competitor(task: CompetitorTask) -> dict:
+    comp, rank = task["competitor"], task["rank"]
+    try:
+        pages = search.fetch_site(comp.homepage_url)
         try:
-            return research_competitor(idea, comp)
-        except Exception:
-            log.exception("Research failed for %s", comp.name)
-            return None
+            pages += search.fetch_reviews(comp.name, comp.homepage_url)
+        except Exception as exc:  # Reviews are optional; keep the site research.
+            log.warning("Review search failed for %s: %s", comp.name, exc)
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        profiles = [p for p in pool.map(_safe, competitors) if p is not None]
+        profile = CompetitorProfile(
+            rank=rank,
+            **comp.model_dump(),
+            pricing=[],
+            claims=[],
+            sources=[Source(url=p.url, title=p.title, kind=p.kind) for p in pages],
+        )
+        if not pages:
+            log.warning("No page content fetched for %s", comp.name)
+            return {"profiles": [profile], "errors": [f"{comp.name}: no pages could be fetched"]}
 
+        prompt = (
+            f"The user is researching competitors for this idea:\n{task['idea']}\n\n"
+            f"Company: {comp.name} ({comp.homepage_url})\n\nPages:\n{_format_pages(pages)}"
+        )
+        extraction = llm.structured(EXTRACT_SYSTEM, prompt, CompetitorExtraction)
+
+        profile.claims = [
+            Claim(id=f"c{rank}-{n}", **c.model_dump()) for n, c in enumerate(extraction.claims, 1)
+        ]
+        profile.pricing = [
+            PricePlan(id=f"c{rank}-p{n}", **p.model_dump()) for n, p in enumerate(extraction.pricing, 1)
+        ]
+        log.info("%s: %d claims, %d price plans from %d pages",
+                 comp.name, len(profile.claims), len(profile.pricing), len(pages))
+        return {"profiles": [profile], "pages": {p.url: p.text for p in pages}}
+    except Exception as exc:
+        log.exception("Research failed for %s", comp.name)
+        return {"errors": [f"{comp.name}: research failed ({type(exc).__name__}: {exc})"]}
+
+
+def verify_sources(state: ResearchState) -> dict:
+    pages = state.get("pages", {})
+    profiles = []
+    for prof in sorted(state.get("profiles", []), key=lambda p: p.rank):
+        profiles.append(
+            prof.model_copy(
+                update={
+                    "claims": [verify.verify_claim(c, pages) for c in prof.claims],
+                    "pricing": [verify.verify_price(p, pages) for p in prof.pricing],
+                }
+            )
+        )
+    return {"verified_profiles": profiles}
+
+
+def analyze_gaps(state: ResearchState) -> dict:
+    profiles: list[CompetitorProfile] = state["verified_profiles"]
+    verified = {c.id: c for p in profiles for c in p.claims if c.verified}
+    if not verified:
+        log.warning("No verified claims; skipping gap analysis")
+        return {"gaps": []}
+
+    facts = []
+    for p in profiles:
+        rows = [f'  [{c.id}] ({c.category}) {c.text} — "{c.quote}"' for c in p.claims if c.verified]
+        rows += [f"  [{pp.id}] (pricing) {pp.plan_name}: {pp.price}" for pp in p.pricing if pp.verified]
+        if rows:
+            facts.append(f"{p.name} ({p.homepage_url}):\n" + "\n".join(rows))
+    prompt = f"Founder's idea:\n{state['idea']}\n\nVerified facts:\n\n" + "\n\n".join(facts)
+    analysis = llm.structured(GAPS_SYSTEM, prompt, GapAnalysis, effort="high")
+
+    verified_prices = {pp.id for p in profiles for pp in p.pricing if pp.verified}
+    gaps = []
+    for g in analysis.gaps:
+        evidence = [i for i in g.evidence_ids if i in verified or i in verified_prices]
+        dropped = set(g.evidence_ids) - set(evidence)
+        if dropped:
+            log.warning("Gap %r cited unknown/unverified IDs: %s", g.title, sorted(dropped))
+        gaps.append(
+            MarketGap(
+                title=g.title,
+                description=g.description,
+                how_to_stand_out=g.how_to_stand_out,
+                evidence_ids=evidence,
+                supported=bool(evidence),
+            )
+        )
+    return {"gaps": gaps}
+
+
+# --- Graph -----------------------------------------------------------------
+
+
+def build_graph():
+    g = StateGraph(ResearchState)
+    g.add_node("plan", plan)
+    g.add_node("find_competitors", find_competitors)
+    g.add_node("research_competitor", research_competitor)
+    g.add_node("verify", verify_sources)
+    g.add_node("analyze_gaps", analyze_gaps)
+
+    g.add_edge(START, "plan")
+    g.add_edge("plan", "find_competitors")
+    g.add_conditional_edges("find_competitors", fan_out, ["research_competitor"])
+    g.add_edge("research_competitor", "verify")
+    g.add_edge("verify", "analyze_gaps")
+    g.add_edge("analyze_gaps", END)
+    return g.compile()
+
+
+def _stats(profiles: list[CompetitorProfile], gaps: list[MarketGap]) -> ReportStats:
+    claims = [c for p in profiles for c in p.claims]
+    prices = [pp for p in profiles for pp in p.pricing]
+    return ReportStats(
+        claims_total=len(claims),
+        claims_verified=sum(c.verified for c in claims),
+        prices_total=len(prices),
+        prices_verified=sum(pp.verified for pp in prices),
+        gaps_supported=sum(g.supported for g in gaps),
+        gaps_unsupported=sum(not g.supported for g in gaps),
+    )
+
+
+def run_research(idea: str, max_competitors: int = 6, max_parallel: int = 4) -> Report:
+    graph = build_graph()
+    state = graph.invoke(
+        {"idea": idea, "max_competitors": max_competitors},
+        config={"max_concurrency": max_parallel},
+    )
+    profiles = state.get("verified_profiles", [])
+    gaps = state.get("gaps", [])
     return Report(
         idea=idea,
         generated_at=datetime.now(timezone.utc),
         model=llm.MODEL,
-        search_queries=queries,
+        search_queries=state.get("queries", []),
         competitors=profiles,
+        gaps=gaps,
+        stats=_stats(profiles, gaps),
+        errors=state.get("errors", []),
     )
