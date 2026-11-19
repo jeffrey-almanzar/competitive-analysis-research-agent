@@ -29,3 +29,15 @@ export function formatDate(iso: string): string {
 export function percent(n: number, total: number): number {
   return total ? Math.round((100 * n) / total) : 0;
 }
+
+// "claude-sonnet-5-5" -> "Sonnet 5.5" for compact labels.
+export function shortModel(id: string | null | undefined): string {
+  if (!id) return "";
+  const m = id.match(/^claude-([a-z]+)-(\d+)-(\d+)$/);
+  return m ? `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}.${m[3]}` : id;
+}
+
+export function formatUsd(n: number): string {
+  if (n > 0 && n < 0.01) return "under $0.01";
+  return `$${n.toFixed(2)}`;
+}

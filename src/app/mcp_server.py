@@ -19,7 +19,15 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
+from app.research import models
+
 API_URL = os.getenv("RESEARCH_API_URL", "http://localhost:8000").rstrip("/")
+
+ModelId = Literal[models.MODEL_IDS]  # type: ignore[valid-type]
+_MODEL_HELP = "Claude model for the research. " + " ".join(
+    f"{m.id}: {m.capability} (~${m.est_cost_per_competitor * 6:.2f} for 6 competitors{'' if m.cost_measured else ', estimated'})."
+    for m in models.MODELS
+) + f" Default: {models.DEFAULT_MODEL} (cheapest)."
 MAX_WAIT_S = 120
 
 server = MCPServer(
@@ -29,8 +37,9 @@ server = MCPServer(
         "Researches the competitors of a business idea and returns a report in which every claim "
         "cites its source page and a verbatim quote. Start with start_research, then poll "
         "get_research (pass wait_seconds to wait for completion), then read get_report. "
-        "A run takes 1-2 minutes. Each start_research call spends real API credits (~$1 per "
-        "6-competitor report), so confirm with the user before starting a new run, and reuse "
+        "A run takes 1-2 minutes. Each start_research call spends real API credits (from a few "
+        "cents with Haiku to ~$1 with Opus for 6 competitors), so confirm the model and cost with "
+        "the user before starting a new run, and reuse "
         "existing runs from list_research when the idea has already been researched."
     ),
 )
@@ -69,7 +78,7 @@ async def _get_run(client: httpx.AsyncClient, run_id: str) -> dict:
 
 def _summarize(run: dict) -> dict:
     """Compact view of a run: status, progress, and (when done) the headline results."""
-    out = {k: run.get(k) for k in ("id", "idea", "status", "progress", "error", "created_at", "finished_at")}
+    out = {k: run.get(k) for k in ("id", "idea", "model", "status", "progress", "error", "created_at", "finished_at")}
     report = run.get("report")
     if report:
         s = report["stats"]
@@ -92,11 +101,12 @@ def _summarize(run: dict) -> dict:
 async def start_research(
     idea: Annotated[str, Field(min_length=10, max_length=2000, description="What the user wants to build, in a sentence or two.")],
     max_competitors: Annotated[int, Field(ge=1, le=10, description="How many competitors to research.")] = 6,
+    model: Annotated[ModelId, Field(description=_MODEL_HELP)] = models.DEFAULT_MODEL,
 ) -> dict:
     """Queue a new competitor research run for a business idea. Returns a run id right away;
     the run takes 1-2 minutes. Costs real API credits, so confirm with the user first."""
     async with _client() as client:
-        r = await client.post("/research", json={"idea": idea, "max_competitors": max_competitors})
+        r = await client.post("/research", json={"idea": idea, "max_competitors": max_competitors, "model": model})
         r.raise_for_status()
         return _summarize(r.json())
 
@@ -150,7 +160,7 @@ async def list_research(
     async with _client() as client:
         r = await client.get("/research", params={"limit": limit})
         r.raise_for_status()
-        return [{k: run[k] for k in ("id", "idea", "status", "created_at")} for run in r.json()]
+        return [{k: run.get(k) for k in ("id", "idea", "model", "status", "created_at")} for run in r.json()]
 
 
 @server.tool(title="List competitors", annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))

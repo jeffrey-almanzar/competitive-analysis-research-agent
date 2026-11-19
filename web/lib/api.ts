@@ -1,6 +1,6 @@
 // Server-side access to the research API. Browser code calls /api/* instead (see next.config.ts).
 
-import type { Run } from "./types";
+import type { ModelList, Run } from "./types";
 
 const API_URL = process.env.API_URL ?? "http://localhost:8000";
 
@@ -13,3 +13,4 @@ async function get<T>(path: string): Promise<T | null> {
 
 export const getRun = (id: string) => get<Run>(`/research/${encodeURIComponent(id)}`);
 export const listRuns = (limit = 12) => get<Run[]>(`/research?limit=${limit}`);
+export const getModels = () => get<ModelList>("/models");

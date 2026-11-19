@@ -1,17 +1,44 @@
 # Claude calls that return validated Pydantic objects via structured outputs.
 # Every call is recorded (model, usage, latency) for cost tracking, evals and tracing.
 
+import contextlib
 import os
 import time
+from contextvars import ContextVar
 from functools import lru_cache
 from typing import TypeVar
 
 import anthropic
 from pydantic import BaseModel
 
-from app.research import telemetry
+from app.research import models, telemetry
 
-MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-5-5")
+# Default when a run doesn't choose a model: CLAUDE_MODEL if set, else the cheapest option.
+MODEL = os.getenv("CLAUDE_MODEL", models.DEFAULT_MODEL)
+models.get(MODEL)  # fail fast on a typo in CLAUDE_MODEL
+
+# The model for the current research run. LangGraph copies context into its worker
+# threads, so every Claude call inside a run uses the run's model.
+_run_model: ContextVar[str | None] = ContextVar("research_run_model", default=None)
+
+
+def current_model() -> str:
+    return _run_model.get() or MODEL
+
+
+@contextlib.contextmanager
+def use_model(model: str | None):
+    """Run the enclosed Claude calls on `model` (validated); None keeps the default."""
+    if model is None:
+        yield current_model()
+        return
+    models.get(model)
+    token = _run_model.set(model)
+    try:
+        yield model
+    finally:
+        _run_model.reset(token)
+
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -35,8 +62,15 @@ def structured(
     name: str | None = None,
 ) -> T:
     """Ask Claude for a response matching `schema` and return the parsed object."""
-    model = model or MODEL
+    model = model or current_model()
     name = name or schema.__name__
+    # On a safety-classifier decline, retry on a fallback model where the model supports it.
+    # Haiku 5.5 has no server-side fallback, and sending the parameter would fail.
+    fallback = (
+        {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+        if models.BY_ID.get(model) is None or models.BY_ID[model].server_fallback
+        else {}
+    )
     start = time.monotonic()
     with telemetry.observe(
         name,
@@ -52,9 +86,7 @@ def structured(
             messages=[{"role": "user", "content": prompt}],
             output_format=schema,
             output_config={"effort": effort},
-            # If the model declines on a safety classifier, the API retries on a fallback model.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
+            **fallback,
         )
         usage = response.usage
         usage_details = {

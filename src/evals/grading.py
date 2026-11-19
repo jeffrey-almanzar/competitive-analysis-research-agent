@@ -27,6 +27,16 @@ PRICES = {
     "claude-opus-4-8": (5.00, 25.00),
     "claude-sonnet-5": (2.00, 10.00),
 }
+# Prompts over this many tokens bill at a higher rate on some models.
+LONG_PROMPT_TOKENS = 100_000
+LONG_PROMPT_PRICES = {"claude-haiku-5-5": (0.50, 2.50)}
+
+
+def _prices(c: telemetry.LLMCall) -> tuple[float, float]:
+    prompt = c.input_tokens + c.cache_read_input_tokens + c.cache_creation_input_tokens
+    if prompt > LONG_PROMPT_TOKENS and c.model in LONG_PROMPT_PRICES:
+        return LONG_PROMPT_PRICES[c.model]
+    return PRICES[c.model]
 
 
 def cost_usd(calls: list[telemetry.LLMCall]) -> float:
@@ -34,7 +44,7 @@ def cost_usd(calls: list[telemetry.LLMCall]) -> float:
     for c in calls:
         if c.model not in PRICES:
             raise KeyError(f"No price for model {c.model!r}; add it to PRICES")
-        pin, pout = PRICES[c.model]
+        pin, pout = _prices(c)
         total += (
             c.input_tokens * pin
             + c.cache_creation_input_tokens * pin * 1.25

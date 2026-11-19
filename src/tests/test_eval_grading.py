@@ -84,10 +84,11 @@ def test_runner_end_to_end_with_failures_and_resume(monkeypatch, tmp_path):
     _patch(monkeypatch)
     real = pipeline.run_research
 
-    def flaky(idea, max_competitors=6):
+    def flaky(idea, max_competitors=6, model=None):
+        assert model == "claude-opus-5-5"  # the eval's default, matching the baseline
         if "veterinary" in idea:
             raise ConnectionError("simulated network failure")
-        return real(IDEA, max_competitors=max_competitors)
+        return real(IDEA, max_competitors=max_competitors, model=model)
 
     monkeypatch.setattr(run_eval.pipeline, "run_research", flaky)
     def structured(system, prompt, schema, **kw):

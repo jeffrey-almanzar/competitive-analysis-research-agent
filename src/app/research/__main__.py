@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 
+from app.research import models
 from app.research.pipeline import run_research
 from app.research.render import to_markdown
 
@@ -18,6 +19,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Research competitors for a business idea.")
     parser.add_argument("idea", help="What you want to build, in a sentence or two.")
     parser.add_argument("--max-competitors", type=int, default=6)
+    parser.add_argument("--model", choices=models.MODEL_IDS, default=None,
+                        help="Claude model (default: CLAUDE_MODEL or the cheapest, %s)" % models.DEFAULT_MODEL)
     parser.add_argument("--out-dir", default="reports", help="Where to write the .json and .md report.")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -31,7 +34,7 @@ def main() -> int:
     for noisy in ("httpx", "httpx2", "anthropic"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
-    report = run_research(args.idea, max_competitors=args.max_competitors)
+    report = run_research(args.idea, max_competitors=args.max_competitors, model=args.model)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

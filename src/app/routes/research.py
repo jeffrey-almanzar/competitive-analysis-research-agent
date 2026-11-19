@@ -12,16 +12,48 @@ from sqlalchemy.orm import Session
 from app import repository
 from app.db import get_session
 from app.models import ReportRow
+from app.research import models
 from app.research.render import to_markdown
 from app.research.schemas import Report
 from app.tasks import run_research_task
 
 router = APIRouter(prefix="/research", tags=["research"])
+models_router = APIRouter(tags=["research"])
+
+ModelId = Literal[models.MODEL_IDS]  # type: ignore[valid-type]
 
 
 class ResearchRequest(BaseModel):
     idea: str = Field(min_length=10, max_length=2000, description="What you want to build, in a sentence or two.")
     max_competitors: int = Field(6, ge=1, le=10)
+    model: ModelId = Field(models.DEFAULT_MODEL, description="Claude model to run the research with.")
+
+
+class ModelOut(BaseModel):
+    id: str
+    label: str
+    capability: str
+    input_per_mtok: float
+    output_per_mtok: float
+    est_cost_per_competitor: float
+    cost_measured: bool
+
+
+class ModelsOut(BaseModel):
+    default: str
+    models: list[ModelOut]
+
+
+@models_router.get("/models", response_model=ModelsOut)
+def list_models():
+    """Models a research run can use, cheapest first, with capability and cost hints."""
+    return {
+        "default": models.DEFAULT_MODEL,
+        "models": [
+            {k: getattr(m, k) for k in ModelOut.model_fields}
+            for m in models.MODELS
+        ],
+    }
 
 
 class ProgressOut(BaseModel):
@@ -34,6 +66,8 @@ class ProgressOut(BaseModel):
 class RunSummary(BaseModel):
     id: uuid.UUID
     idea: str
+    model: str | None
+    max_competitors: int
     status: Literal["queued", "running", "succeeded", "failed"]
     progress: ProgressOut | None
     error: str | None
@@ -52,7 +86,8 @@ def _summary(row: ReportRow, request: Request) -> dict:
     if row.status == "succeeded":
         links["markdown"] = str(request.url_for("get_research_markdown", run_id=row.id))
     return {
-        "id": row.id, "idea": row.idea, "status": row.status, "progress": row.progress, "error": row.error,
+        "id": row.id, "idea": row.idea, "model": row.model, "max_competitors": row.max_competitors,
+        "status": row.status, "progress": row.progress, "error": row.error,
         "created_at": row.created_at, "started_at": row.started_at, "finished_at": row.finished_at,
         "links": links,
     }
@@ -60,7 +95,7 @@ def _summary(row: ReportRow, request: Request) -> dict:
 
 @router.post("", status_code=202, response_model=RunSummary)
 def create_research(body: ResearchRequest, request: Request, session: Session = Depends(get_session)):
-    row = repository.create_run(session, body.idea.strip(), body.max_competitors)
+    row = repository.create_run(session, body.idea.strip(), body.max_competitors, body.model)
     session.commit()  # the worker must be able to see the row
     result = run_research_task.delay(str(row.id))
     row.task_id = result.id

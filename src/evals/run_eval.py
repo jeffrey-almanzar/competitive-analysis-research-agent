@@ -26,7 +26,7 @@ from pathlib import Path
 
 import anthropic
 
-from app.research import llm, pipeline, telemetry
+from app.research import llm, models, pipeline, telemetry
 from app.research.render import to_markdown
 from evals import grading
 
@@ -145,7 +145,7 @@ def _trace(idea: str, rec: telemetry.RunRecorder, report_md: str) -> list[dict]:
 def run_case(case: dict, rep: int, args, var_dir: Path) -> dict:
     """Run and grade one (case, rep). Raises on failure; the caller records the error."""
     with telemetry.recording() as rec:
-        report = pipeline.run_research(case["idea"], max_competitors=args.max_competitors)
+        report = pipeline.run_research(case["idea"], max_competitors=args.max_competitors, model=args.model)
 
     served = {c.model for c in rec.llm_calls}
     if served - {args.model}:
@@ -250,7 +250,8 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, default=3, help="Cases run at once")
     parser.add_argument("--timeout-s", type=float, default=900, help="Wall-clock ceiling per case")
     parser.add_argument("--max-competitors", type=int, default=6)
-    parser.add_argument("--model", default=llm.MODEL, help="Model the agent must be served by")
+    parser.add_argument("--model", default="claude-opus-5-5", choices=models.MODEL_IDS,
+                        help="Model the agent runs on (default: claude-opus-5-5, the baseline's model)")
     parser.add_argument("--judge-model", default=grading.JUDGE_MODEL)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--approve-harness", action="store_true")
@@ -259,8 +260,6 @@ def main() -> int:
 
     if args.variant != "baseline" and not (args.variant[:1] == "v" and args.variant[1:].isdigit()):
         raise SystemExit('--variant must be "baseline" or v<N>')
-    if args.model != llm.MODEL:
-        raise SystemExit(f"--model {args.model} differs from the agent's CLAUDE_MODEL ({llm.MODEL}); set CLAUDE_MODEL")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", datefmt="%H:%M:%S")
     for noisy in ("httpx", "httpx2", "anthropic", "app.research"):

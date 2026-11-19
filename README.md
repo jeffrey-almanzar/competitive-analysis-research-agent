@@ -56,7 +56,7 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
 
    curl -X POST localhost:8000/research \
      -H 'Content-Type: application/json' \
-     -d '{"idea": "AI meeting notes for small law firms", "max_competitors": 4}'
+     -d '{"idea": "AI meeting notes for small law firms", "max_competitors": 4, "model": "claude-sonnet-5-5"}'
    # -> 202 {"id": "...", "status": "queued", "links": {"self": ".../research/<id>"}, ...}
 
    curl localhost:8000/research/<id>
@@ -66,6 +66,8 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
    curl localhost:8000/research/<id>/report.md    # the report as Markdown
    curl localhost:8000/research                    # recent runs
    ```
+   `model` is one of `claude-haiku-5-5` (the default and cheapest), `claude-sonnet-5-5` or `claude-opus-5-5`. `GET /models` lists each one with a capability hint, token prices and an estimated cost per competitor. The Opus figure is measured; the Haiku and Sonnet figures are scaled from it by price. The CLI (`--model`), the MCP `start_research` tool and the web app's model dropdown all use this list. The eval keeps Opus 5.5 as its default model, to match its baseline.
+
    Each POST starts a real research run, which costs about $0.35 for 2 competitors and more for larger reports. Progress moves through `queued → planning → finding_competitors → researching (n/N) → verifying → analyzing_gaps → done`, or ends in `failed` with an `error`. Reports are stored in PostgreSQL in the tables `reports`, `competitors`, `sources`, `claims`, `price_plans` and `market_gaps`. Every claim keeps its quote, source URL and verification result, and links to its stored source page. Fetched pages are cached in Redis for 24 hours (`PAGE_CACHE_TTL_S`, where `0` disables the cache), so re-running research on the same companies skips repeat Exa requests.
 
    Interactive API docs: http://localhost:8000/docs

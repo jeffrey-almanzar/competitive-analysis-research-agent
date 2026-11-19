@@ -31,10 +31,11 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def create_run(session: Session, idea: str, max_competitors: int) -> ReportRow:
+def create_run(session: Session, idea: str, max_competitors: int, model: str) -> ReportRow:
     row = ReportRow(
         idea=idea,
         max_competitors=max_competitors,
+        model=model,
         status="queued",
         progress={"step": "queued", "message": "Waiting for a worker", "completed": 0, "total": 0},
     )

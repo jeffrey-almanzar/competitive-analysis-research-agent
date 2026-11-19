@@ -338,11 +338,13 @@ def run_research(
     max_competitors: int = 6,
     max_parallel: int = 4,
     on_progress: ProgressCallback | None = None,
+    model: str | None = None,
 ) -> Report:
+    """Research competitors for `idea`. `model` picks the Claude model (default: llm.MODEL)."""
     graph = build_graph()
     notify = on_progress or (lambda p: None)
-    with telemetry.recording(reuse=True) as rec, telemetry.observe(
-        "research", as_type="agent", input={"idea": idea, "max_competitors": max_competitors}
+    with llm.use_model(model) as run_model, telemetry.recording(reuse=True) as rec, telemetry.observe(
+        "research", as_type="agent", input={"idea": idea, "max_competitors": max_competitors, "model": run_model}
     ) as root:
         notify(Progress("planning", "Planning search queries"))
         state: dict = {}
@@ -364,7 +366,7 @@ def run_research(
         report = Report(
             idea=idea,
             generated_at=datetime.now(timezone.utc),
-            model=llm.MODEL,
+            model=run_model,
             search_queries=state.get("queries", []),
             competitors=profiles,
             gaps=gaps,

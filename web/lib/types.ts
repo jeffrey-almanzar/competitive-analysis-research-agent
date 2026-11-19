@@ -91,9 +91,26 @@ export interface Report {
   errors: string[];
 }
 
+export interface ModelOption {
+  id: string;
+  label: string;
+  capability: string;
+  input_per_mtok: number;
+  output_per_mtok: number;
+  est_cost_per_competitor: number;
+  cost_measured: boolean;
+}
+
+export interface ModelList {
+  default: string;
+  models: ModelOption[];
+}
+
 export interface Run {
   id: string;
   idea: string;
+  model: string | null;
+  max_competitors: number;
   status: RunStatus;
   progress: Progress | null;
   error: string | null;

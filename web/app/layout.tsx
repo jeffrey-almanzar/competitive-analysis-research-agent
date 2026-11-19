@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, IBM_Plex_Mono, Source_Serif_4 } from "next/font/google";
+import { Geist, Geist_Mono, Unbounded } from "next/font/google";
 import Link from "next/link";
+import Logo from "@/components/Logo";
 import "./globals.css";
 
-const display = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-bricolage", weight: ["600", "700", "800"] });
-const body = Source_Serif_4({ subsets: ["latin"], variable: "--font-source-serif" });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], variable: "--font-plex-mono", weight: ["400", "500"] });
+const display = Unbounded({ subsets: ["latin"], variable: "--font-unbounded", weight: ["400", "500", "600"] });
+const body = Geist({ subsets: ["latin"], variable: "--font-geist" });
+const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
   title: "Competitive Research",
@@ -14,14 +15,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
+    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`} suppressHydrationWarning>
       <body>
         <header className="site-header">
           <div className="site-header__inner">
             <Link href="/" className="wordmark">
-              Competitive <span>Research</span>
+              <Logo />
+              Competitive Research
             </Link>
-            <span className="mono muted">every claim, sourced</span>
+            <span className="chip">
+              <span className="dot dot--succeeded" /> Source-verified
+            </span>
           </div>
         </header>
         <main className="page">{children}</main>

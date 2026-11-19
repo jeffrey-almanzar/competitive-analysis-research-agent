@@ -31,3 +31,4 @@ def health():
 
 
 app.include_router(research.router)
+app.include_router(research.models_router)

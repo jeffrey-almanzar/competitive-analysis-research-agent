@@ -37,7 +37,7 @@ def run_research_task(self, run_id: str) -> dict:
             # Idempotent: a redelivered task for a finished run does nothing.
             return {"status": "succeeded"}
         repository.mark_running(s, row, self.request.id)
-        idea, max_competitors = row.idea, row.max_competitors
+        idea, max_competitors, model = row.idea, row.max_competitors, row.model
 
     def on_progress(p: Progress) -> None:
         with session_scope() as s:
@@ -45,7 +45,7 @@ def run_research_task(self, run_id: str) -> dict:
                                              "completed": p.completed, "total": p.total})
 
     try:
-        report = run_research(idea, max_competitors=max_competitors, on_progress=on_progress)
+        report = run_research(idea, max_competitors=max_competitors, on_progress=on_progress, model=model)
     except SoftTimeLimitExceeded:
         with session_scope() as s:
             repository.mark_failed(s, rid, "Research took too long and was stopped.")

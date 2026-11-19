@@ -36,7 +36,7 @@ def test_progress_events_follow_the_graph(monkeypatch):
 def test_report_round_trips_through_the_database(monkeypatch, sqlite_db):
     report = _report(monkeypatch)
     with session_scope() as s:
-        run_id = repository.create_run(s, IDEA, 6).id
+        run_id = repository.create_run(s, IDEA, 6, "claude-opus-5-5").id
     with session_scope() as s:
         repository.save_report(s, run_id, report)
     with session_scope() as s:
@@ -58,7 +58,7 @@ def test_task_runs_research_and_records_progress(monkeypatch, sqlite_db):
     real = repository.set_progress
     monkeypatch.setattr(repository, "set_progress", lambda s, rid, p: (seen.append(p["step"]), real(s, rid, p)))
     with session_scope() as s:
-        run_id = repository.create_run(s, IDEA, 6).id
+        run_id = repository.create_run(s, IDEA, 6, "claude-opus-5-5").id
 
     assert tasks.run_research_task(str(run_id)) == {"status": "succeeded"}
     assert seen[0] == "planning" and seen[-1] == "done"
@@ -78,7 +78,7 @@ def test_task_failure_is_recorded(monkeypatch, sqlite_db):
 
     monkeypatch.setattr(tasks, "run_research", boom)
     with session_scope() as s:
-        run_id = repository.create_run(s, IDEA, 6).id
+        run_id = repository.create_run(s, IDEA, 6, "claude-opus-5-5").id
     assert tasks.run_research_task(str(run_id)) == {"status": "failed"}
     with session_scope() as s:
         row = repository.get_run(s, run_id)
