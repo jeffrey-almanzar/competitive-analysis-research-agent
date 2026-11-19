@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 from exa_py import Exa
 
+from app.research import telemetry
+
 log = logging.getLogger(__name__)
 
 # Page text sent to Claude is capped per page to keep requests bounded.
@@ -58,20 +60,26 @@ def find_candidates(queries: list[str], per_query: int = 10) -> list[Candidate]:
     """Run each query as a company search and return results de-duplicated by domain."""
     seen: dict[str, Candidate] = {}
     for query in queries:
-        response = _client().search(
-            query,
-            num_results=per_query,
-            category="company",
-            type="auto",
-            contents={"text": {"max_characters": 500}},
-        )
-        for r in response.results:
+        for r in _company_search(query, num_results=per_query):
             d = domain(r.url)
             if d and d not in seen:
-                seen[d] = Candidate(url=r.url, title=r.title, snippet=(r.text or "").strip())
+                seen[d] = r
     return list(seen.values())
 
 
+@telemetry.tool("exa.search_companies")
+def _company_search(query: str, num_results: int) -> list[Candidate]:
+    response = _client().search(
+        query,
+        num_results=num_results,
+        category="company",
+        type="auto",
+        contents={"text": {"max_characters": 500}},
+    )
+    return [Candidate(url=r.url, title=r.title, snippet=(r.text or "").strip()) for r in response.results]
+
+
+@telemetry.tool("exa.fetch_site")
 def fetch_site(homepage_url: str, subpages: int = 3) -> list[Page]:
     """Fetch a competitor's homepage plus likely pricing/feature subpages."""
     response = _client().get_contents(
@@ -92,6 +100,7 @@ def fetch_site(homepage_url: str, subpages: int = 3) -> list[Page]:
     return pages
 
 
+@telemetry.tool("exa.search_reviews")
 def fetch_reviews(company: str, homepage_url: str, num_results: int = 4) -> list[Page]:
     """Find review and discussion pages about a company on review sites and Reddit."""
     # Exa's include_text accepts one phrase of up to 5 words.

@@ -8,6 +8,7 @@
 
 import logging
 import operator
+import time
 from datetime import datetime, timezone
 from typing import Annotated, TypedDict
 from xml.sax.saxutils import escape, quoteattr
@@ -15,7 +16,7 @@ from xml.sax.saxutils import escape, quoteattr
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from app.research import llm, search, verify
+from app.research import llm, search, telemetry, verify
 from app.research.schemas import (
     Claim,
     CompetitorCandidate,
@@ -27,6 +28,7 @@ from app.research.schemas import (
     PricePlan,
     Report,
     ReportStats,
+    RunUsage,
     SearchPlan,
     Source,
 )
@@ -103,12 +105,14 @@ class CompetitorTask(TypedDict):
 # --- Nodes -----------------------------------------------------------------
 
 
+@telemetry.traced_node
 def plan(state: ResearchState) -> dict:
     result = llm.structured(PLAN_SYSTEM, f"Business idea:\n{state['idea']}", SearchPlan)
     log.info("Queries: %s", result.queries)
     return {"queries": result.queries}
 
 
+@telemetry.traced_node
 def find_competitors(state: ResearchState) -> dict:
     candidates = search.find_candidates(state["queries"])
     log.info("Found %d candidate companies", len(candidates))
@@ -153,6 +157,7 @@ def _format_pages(pages: list[search.Page]) -> str:
     )
 
 
+@telemetry.traced_node
 def research_competitor(task: CompetitorTask) -> dict:
     comp, rank = task["competitor"], task["rank"]
     try:
@@ -193,6 +198,7 @@ def research_competitor(task: CompetitorTask) -> dict:
         return {"errors": [f"{comp.name}: research failed ({type(exc).__name__}: {exc})"]}
 
 
+@telemetry.traced_node
 def verify_sources(state: ResearchState) -> dict:
     pages = state.get("pages", {})
     profiles = []
@@ -208,6 +214,7 @@ def verify_sources(state: ResearchState) -> dict:
     return {"verified_profiles": profiles}
 
 
+@telemetry.traced_node
 def analyze_gaps(state: ResearchState) -> dict:
     profiles: list[CompetitorProfile] = state["verified_profiles"]
     verified = {c.id: c for p in profiles for c in p.claims if c.verified}
@@ -276,21 +283,44 @@ def _stats(profiles: list[CompetitorProfile], gaps: list[MarketGap]) -> ReportSt
     )
 
 
+def _usage(rec: telemetry.RunRecorder, trace_url: str | None) -> RunUsage:
+    calls = rec.llm_calls
+    return RunUsage(
+        models=sorted({c.model for c in calls}),
+        llm_calls=len(calls),
+        input_tokens=sum(c.input_tokens for c in calls),
+        output_tokens=sum(c.output_tokens for c in calls),
+        cache_read_input_tokens=sum(c.cache_read_input_tokens for c in calls),
+        cache_creation_input_tokens=sum(c.cache_creation_input_tokens for c in calls),
+        exa_requests=len(rec.tool_calls),
+        latency_s=round(time.monotonic() - rec.started, 2),
+        trace_url=trace_url,
+    )
+
+
 def run_research(idea: str, max_competitors: int = 6, max_parallel: int = 4) -> Report:
     graph = build_graph()
-    state = graph.invoke(
-        {"idea": idea, "max_competitors": max_competitors},
-        config={"max_concurrency": max_parallel},
-    )
-    profiles = state.get("verified_profiles", [])
-    gaps = state.get("gaps", [])
-    return Report(
-        idea=idea,
-        generated_at=datetime.now(timezone.utc),
-        model=llm.MODEL,
-        search_queries=state.get("queries", []),
-        competitors=profiles,
-        gaps=gaps,
-        stats=_stats(profiles, gaps),
-        errors=state.get("errors", []),
-    )
+    with telemetry.recording(reuse=True) as rec, telemetry.observe(
+        "research", as_type="agent", input={"idea": idea, "max_competitors": max_competitors}
+    ) as root:
+        state = graph.invoke(
+            {"idea": idea, "max_competitors": max_competitors},
+            config={"max_concurrency": max_parallel},
+        )
+        profiles = state.get("verified_profiles", [])
+        gaps = state.get("gaps", [])
+        report = Report(
+            idea=idea,
+            generated_at=datetime.now(timezone.utc),
+            model=llm.MODEL,
+            search_queries=state.get("queries", []),
+            competitors=profiles,
+            gaps=gaps,
+            stats=_stats(profiles, gaps),
+            errors=state.get("errors", []),
+        )
+        if root is not None:
+            root.update(output=report.stats.model_dump())
+        report.usage = _usage(rec, telemetry.trace_url())
+    telemetry.flush()
+    return report

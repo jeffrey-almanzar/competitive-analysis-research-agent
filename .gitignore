@@ -9,3 +9,10 @@ venv/
 *.tfstate.backup
 node_modules/
 src/reports/
+
+# Eval output: keep results.jsonl/errors.jsonl/_state.json, ignore bulky or derived files
+.claude/hillclimb/**/traces/
+.claude/hillclimb/**/reports/
+.claude/hillclimb/**/report.html
+.claude/hillclimb/**/state.json
+.claude/hillclimb/**/trajectory/

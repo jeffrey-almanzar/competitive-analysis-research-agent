@@ -1,0 +1,191 @@
+# Eval cases for the competitive research agent.
+#
+# Each case is a business idea plus the competitors a good report should find.
+# `expected` lists only the most obvious, well-established players: the agent picks up to
+# 6 competitors, so finding other valid ones is fine. Recall = share of `expected` found.
+# A competitor counts as found if any of its `domains` matches a selected competitor's
+# homepage domain, or its name matches a selected competitor's name.
+#
+# STATUS: DRAFT. Competitor lists were written from general market knowledge and need
+# a human check before the eval's recall numbers can be trusted. Set reviewed = true
+# on each case once checked.
+
+[[case]]
+id = "meeting-notes-sales"
+tags = ["b2b-saas", "crowded"]
+idea = "An AI notetaker that joins Zoom and Google Meet sales calls, writes summaries, and pushes notes to the CRM."
+reviewed = false
+expected = [
+  { name = "Gong", domains = ["gong.io"] },
+  { name = "Fireflies.ai", domains = ["fireflies.ai"] },
+  { name = "Otter.ai", domains = ["otter.ai"] },
+  { name = "Fathom", domains = ["fathom.video", "fathom.ai"] },
+]
+
+[[case]]
+id = "scheduling-links"
+tags = ["b2b-saas", "crowded"]
+idea = "A scheduling tool where professionals share a booking link so clients can pick a meeting time that syncs with their calendar."
+reviewed = false
+expected = [
+  { name = "Calendly", domains = ["calendly.com"] },
+  { name = "Cal.com", domains = ["cal.com"] },
+  { name = "SavvyCal", domains = ["savvycal.com"] },
+  { name = "Acuity Scheduling", domains = ["acuityscheduling.com"] },
+]
+
+[[case]]
+id = "freelancer-invoicing"
+tags = ["b2b-saas", "smb"]
+idea = "Invoicing, expense tracking, and simple bookkeeping software for freelancers and solo consultants."
+reviewed = false
+expected = [
+  { name = "FreshBooks", domains = ["freshbooks.com"] },
+  { name = "Wave", domains = ["waveapps.com", "wave.com"] },
+  { name = "QuickBooks", domains = ["quickbooks.intuit.com", "intuit.com"] },
+  { name = "Bonsai", domains = ["hellobonsai.com"] },
+]
+
+[[case]]
+id = "error-monitoring"
+tags = ["dev-tools", "crowded"]
+idea = "An error monitoring service that captures crashes and exceptions from web and mobile apps and alerts developers."
+reviewed = false
+expected = [
+  { name = "Sentry", domains = ["sentry.io"] },
+  { name = "Bugsnag", domains = ["bugsnag.com"] },
+  { name = "Rollbar", domains = ["rollbar.com"] },
+  { name = "Raygun", domains = ["raygun.com"] },
+]
+
+[[case]]
+id = "feature-flags"
+tags = ["dev-tools", "crowded"]
+idea = "A feature flag platform that lets engineering teams roll out features gradually and run A/B tests without redeploying."
+reviewed = false
+expected = [
+  { name = "LaunchDarkly", domains = ["launchdarkly.com"] },
+  { name = "Statsig", domains = ["statsig.com"] },
+  { name = "Flagsmith", domains = ["flagsmith.com"] },
+  { name = "ConfigCat", domains = ["configcat.com"] },
+  { name = "Unleash", domains = ["getunleash.io"] },
+]
+
+[[case]]
+id = "language-learning"
+tags = ["consumer", "crowded"]
+idea = "A mobile app for learning a new language through short daily lessons and games."
+reviewed = false
+expected = [
+  { name = "Duolingo", domains = ["duolingo.com"] },
+  { name = "Babbel", domains = ["babbel.com"] },
+  { name = "Busuu", domains = ["busuu.com"] },
+  { name = "Memrise", domains = ["memrise.com"] },
+]
+
+[[case]]
+id = "meal-kits"
+tags = ["consumer", "physical-product"]
+idea = "A weekly meal kit delivery service with recipes and pre-portioned ingredients for home cooks."
+reviewed = false
+expected = [
+  { name = "HelloFresh", domains = ["hellofresh.com"] },
+  { name = "Blue Apron", domains = ["blueapron.com"] },
+  { name = "Home Chef", domains = ["homechef.com"] },
+  { name = "EveryPlate", domains = ["everyplate.com"] },
+]
+
+[[case]]
+id = "meditation-app"
+tags = ["consumer", "crowded"]
+idea = "A meditation and sleep app with guided sessions, sleep stories, and breathing exercises."
+reviewed = false
+expected = [
+  { name = "Headspace", domains = ["headspace.com"] },
+  { name = "Calm", domains = ["calm.com"] },
+  { name = "Insight Timer", domains = ["insighttimer.com"] },
+]
+
+[[case]]
+id = "freelance-marketplace"
+tags = ["marketplace", "crowded"]
+idea = "An online marketplace where businesses hire freelance designers, writers, and developers for projects."
+reviewed = false
+expected = [
+  { name = "Upwork", domains = ["upwork.com"] },
+  { name = "Fiverr", domains = ["fiverr.com"] },
+  { name = "Toptal", domains = ["toptal.com"] },
+  { name = "Freelancer.com", domains = ["freelancer.com"] },
+]
+
+[[case]]
+id = "salon-booking"
+tags = ["vertical-saas", "smb"]
+idea = "Online booking, payments, and client management software for hair salons and barbershops."
+reviewed = false
+expected = [
+  { name = "Vagaro", domains = ["vagaro.com"] },
+  { name = "Fresha", domains = ["fresha.com"] },
+  { name = "Boulevard", domains = ["joinblvd.com"] },
+  { name = "GlossGenius", domains = ["glossgenius.com"] },
+]
+
+[[case]]
+id = "video-doorbell"
+tags = ["hardware", "crowded"]
+idea = "A smart video doorbell for homes that sends phone alerts and records visitors."
+reviewed = false
+expected = [
+  { name = "Ring", domains = ["ring.com"] },
+  { name = "Google Nest", domains = ["store.google.com", "nest.com"] },
+  { name = "Arlo", domains = ["arlo.com"] },
+  { name = "Eufy", domains = ["eufy.com"] },
+  { name = "Wyze", domains = ["wyze.com"] },
+]
+
+[[case]]
+id = "startup-corporate-cards"
+tags = ["fintech", "crowded"]
+idea = "Corporate cards with built-in expense management and receipt capture for startups."
+reviewed = false
+expected = [
+  { name = "Brex", domains = ["brex.com"] },
+  { name = "Ramp", domains = ["ramp.com"] },
+  { name = "Expensify", domains = ["expensify.com"] },
+  { name = "BILL Spend & Expense", domains = ["bill.com", "divvy.co", "getdivvy.com"] },
+]
+
+[[case]]
+id = "online-therapy"
+tags = ["health", "regulated"]
+idea = "Online therapy with licensed therapists over video, phone, and messaging, paid by subscription."
+reviewed = false
+expected = [
+  { name = "BetterHelp", domains = ["betterhelp.com"] },
+  { name = "Talkspace", domains = ["talkspace.com"] },
+  { name = "Cerebral", domains = ["cerebral.com"] },
+]
+
+[[case]]
+id = "vet-practice-software"
+tags = ["vertical-saas", "niche"]
+idea = "Cloud practice management software for veterinary clinics: appointments, medical records, and billing."
+reviewed = false
+expected = [
+  { name = "ezyVet", domains = ["ezyvet.com"] },
+  { name = "Shepherd", domains = ["shepherd.vet"] },
+  { name = "Vetspire", domains = ["vetspire.com"] },
+  { name = "IDEXX Neo / Cornerstone", domains = ["idexx.com", "neo.vet"] },
+]
+
+[[case]]
+id = "law-practice-software"
+tags = ["vertical-saas", "niche"]
+idea = "Practice management software for small law firms: case management, time tracking, billing, and a client portal."
+reviewed = false
+expected = [
+  { name = "Clio", domains = ["clio.com"] },
+  { name = "MyCase", domains = ["mycase.com"] },
+  { name = "PracticePanther", domains = ["practicepanther.com"] },
+  { name = "Smokeball", domains = ["smokeball.com"] },
+]

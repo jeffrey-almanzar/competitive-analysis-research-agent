@@ -75,7 +75,27 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
    docker compose run --rm api python -m pytest -q tests
    ```
 
-4) **View logs / stop**:
+4) **Tracing (self-hosted Langfuse)**:
+   ```bash
+   ./scripts/init-env.sh                 # one time: random local secrets in .env
+   docker compose --profile tracing up -d
+   ```
+   Open http://localhost:3000 and log in with `LANGFUSE_INIT_USER_EMAIL` / `LANGFUSE_INIT_USER_PASSWORD` from `.env`. Each research run appears as one trace, made of graph-node spans, Claude generations (with token usage) and Exa tool calls. Without the `tracing` profile running, tracing turns itself off.
+
+5) **Evals**:
+   ```bash
+   docker compose run --rm api python -m evals.run_eval --cases meal-kits,error-monitoring
+   docker compose run --rm api python -m evals.run_eval            # all cases in src/evals/cases.toml
+   ```
+   This runs the real agent on each case and scores it on four measures:
+   - **Citation support** (headline): share of verified claims whose quote actually backs them up, judged by Claude Sonnet 5.5.
+   - **Quote found rate**: share of claims whose quote appears on the cited page. 1 minus this is the flag rate.
+   - **Competitor recall**: share of each case's expected competitors that the report found.
+   - **Gap grounding**: share of market gaps backed by verified evidence.
+
+   The runner also records cost, tokens, latency and Exa requests. Results go to `.claude/hillclimb/research-report/baseline/`. The first run, and any run after the eval code changes, must add `--approve-harness`.
+
+6) **View logs / stop**:
    ```bash
    docker compose logs -f api worker
    docker compose down

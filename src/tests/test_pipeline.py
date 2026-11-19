@@ -1,6 +1,6 @@
 # Offline tests for the research graph: Exa and Claude are replaced with fakes.
 
-from app.research import pipeline, search
+from app.research import pipeline, search, telemetry
 from app.research.render import to_markdown
 from app.research.schemas import (
     CompetitorCandidate,
@@ -30,7 +30,7 @@ REVIEWS = {
 }
 
 
-def fake_structured(system, prompt, schema, effort="medium"):
+def fake_structured(system, prompt, schema, effort="medium", **kwargs):
     if schema is SearchPlan:
         return SearchPlan(queries=["AI note taker for lawyers"])
     if schema is CompetitorSelection:
@@ -147,3 +147,17 @@ def test_review_pages_must_name_the_company():
     assert search.mentions_company("Smart Note", "https://www.g2.com/products/smartnote/reviews")
     assert not search.mentions_company("Smartnote", "Smartnotation https://www.capterra.com/p/179097/Smartnotation/")
     assert not search.mentions_company("Smartnote", "Smart Noter reviews https://www.producthunt.com/products/smart-noter")
+
+
+def test_usage_is_recorded_across_parallel_branches(monkeypatch):
+    _patch(monkeypatch)
+    # Wrap the fakes the way the real Exa functions are wrapped.
+    monkeypatch.setattr(search, "fetch_site",
+                        telemetry.tool("exa.fetch_site")(lambda url, subpages=3: list(SITE[url])))
+    monkeypatch.setattr(search, "fetch_reviews",
+                        telemetry.tool("exa.search_reviews")(lambda n, u, num_results=4: list(REVIEWS.get(n, []))))
+    report = pipeline.run_research(IDEA)
+    # 2 competitors x (site + reviews), each recorded from a LangGraph worker thread.
+    assert report.usage.exa_requests == 4
+    assert report.usage.latency_s >= 0
+    assert report.usage.trace_url is None  # Langfuse not configured in tests
