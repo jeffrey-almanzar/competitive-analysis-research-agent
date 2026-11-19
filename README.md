@@ -63,7 +63,19 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
    ```
    Interactive API docs: http://localhost:8000/docs
 
-3) **View logs / stop**:
+3) **Run competitor research from the CLI**:
+   Copy `.env.example` to `.env` and fill in `ANTHROPIC_API_KEY` and `EXA_API_KEY`. Then:
+   ```bash
+   docker compose run --rm api python -m app.research "AI meeting notes for small law firms"
+   ```
+   It prints a Markdown report and saves `.md` and `.json` copies to `src/reports/`. Each claim and price comes with its source URL and a verbatim quote from that page. Options: `--max-competitors N`, `-v`.
+
+   Run the offline tests (no API keys needed):
+   ```bash
+   docker compose run --rm api python -m pytest -q tests
+   ```
+
+4) **View logs / stop**:
    ```bash
    docker compose logs -f api worker
    docker compose down
