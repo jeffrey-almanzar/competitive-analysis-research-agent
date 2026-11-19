@@ -288,18 +288,48 @@ a.chip:hover {
 }
 
 .page {
-  padding-block: 4rem 6rem;
+  padding-block: 2.75rem 6rem;
 }
 
 /* --- Home ---------------------------------------------------------------------- */
 
 .hero {
-  max-width: 52rem;
+  max-width: 52rem; /* same width as the research console below */
+}
+
+.hero__kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.hero__kicker .eyebrow {
+  font-size: 0.6875rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  color: var(--cyan);
+  padding: 0.2rem 0.6rem;
+  border: 1px solid rgba(94, 230, 240, 0.35);
+  border-radius: 999px;
+  background: var(--cyan-dim);
+}
+
+.badge .dot {
+  width: 6px;
+  height: 6px;
 }
 
 .hero h1 {
-  font-size: clamp(2.5rem, 6.5vw, 4.75rem);
-  margin-top: 1.25rem;
+  font-size: clamp(2rem, 4.6vw, 3.25rem);
+  margin-top: 1rem;
 }
 
 .hero h1 em {
@@ -310,15 +340,14 @@ a.chip:hover {
   color: transparent;
 }
 
-.hero p {
-  max-width: 38rem;
-  margin: 1.5rem 0 0;
-  font-size: 1.125rem;
+.hero__lede {
+  margin: 1rem 0 0;
+  font-size: 1.0625rem;
   color: var(--text-2);
 }
 
 .console {
-  margin-top: 3rem;
+  margin-top: 2rem;
   max-width: 52rem;
   overflow: hidden;
 }
@@ -346,7 +375,7 @@ a.chip:hover {
 
 .console textarea {
   width: 100%;
-  min-height: 7.5rem;
+  min-height: 5rem;
   resize: vertical;
   font: inherit;
   font-size: 1.125rem;

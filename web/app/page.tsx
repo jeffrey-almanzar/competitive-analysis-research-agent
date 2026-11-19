@@ -19,11 +19,16 @@ export default async function Home() {
   return (
     <>
       <section className="hero rise">
-        <p className="eyebrow">Competitive intelligence</p>
+        <div className="hero__kicker">
+          <span className="badge">
+            <span className="dot dot--succeeded" /> Research agent
+          </span>
+          <span className="eyebrow">Competitive intelligence</span>
+        </div>
         <h1>
           Who are you <em>up against?</em>
         </h1>
-        <p>
+        <p className="hero__lede">
           Describe what you want to build. The agent finds your competitors, reads their sites, pricing and reviews,
           and checks every claim against the page it came from.
         </p>

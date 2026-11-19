@@ -10,6 +10,42 @@ For my career: it’s the most in-demand agent pattern, multi-step research with
 **Technologies:** Python, FastAPI, Pydantic, and Celery, Redis, Claude API, LangGraph, MCP, Exa Web Search API, PostgreSQL, Evals, Next.js, TypeScript, OpenTelemetry, Langfuse, AWS Fargate, AWS RDS, AWS SQS, Terraform, GitHub Actions, Docker
 
 
+## Demo
+
+Screenshots from real runs on a local stack.
+
+### Web app
+
+You describe the idea, then pick a model and how many competitors to research. A hint under the controls shows the chosen model's strengths, its estimated cost and its token prices. Claude Haiku 5.5, the lowest-cost model, is selected by default.
+
+![New research form with model and competitor dropdowns](docs/screenshots/web-new-research.png)
+
+While the agent runs, the page shows each step of the LangGraph pipeline, with one tick per competitor researched.
+
+![Research in progress](docs/screenshots/web-research-progress.png)
+
+Each report opens with a source check. Every segment of the strip is one claim or price: cyan means its quote was found word for word on the cited page, and hatched amber means it couldn't be confirmed. Below that are market gaps, ranked and backed by verified evidence.
+
+![Report source check and market gaps](docs/screenshots/web-report-source-check.png)
+
+Each competitor's claims sit on an evidence rail. Click a claim to see the verbatim quote and the page it came from.
+
+![Competitor claims with sources](docs/screenshots/web-report-competitors.png)
+
+### Claude Desktop (MCP)
+
+The agent runs as a local MCP server, connected to Claude Desktop over stdio.
+
+![competitive-research connected in Claude Desktop](docs/screenshots/claude-desktop-connector.png)
+
+Claude can list past reports, which only reads the database and calls no paid API:
+
+![Claude listing research reports through MCP](docs/screenshots/claude-desktop-list-reports.png)
+
+Claude can also read a report's market gaps and judge how strong the evidence behind each one is:
+
+![Claude reviewing a report's market gaps through MCP](docs/screenshots/claude-desktop-market-gaps.png)
+
 ## Overview
 
 The Competitive Analysis Research Agent is designed to automate the labor-intensive process of market research by utilizing a multi-step agent pattern. This project focuses on gathering competitive intelligence by identifying competitors, analyzing their websites, pricing, and customer reviews, and generating a structured report that provides actionable insights with verifiable sources. This approach mitigates the common issue of chatbot-generated content, which often lacks traceability and accuracy, by ensuring every claim is backed by a source. 
@@ -85,18 +121,20 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
    ```bash
    claude mcp add --transport http competitive-research http://localhost:8001/mcp
    ```
-   For Claude Desktop, add this to `claude_desktop_config.json` (it starts the server over stdio inside Docker):
+   For Claude Desktop, open **Settings → Developer → Edit Config** (this opens `~/Library/Application Support/Claude/claude_desktop_config.json`) and add the server below. Claude Desktop then runs the MCP server over stdio inside the already-running `mcp` container. Start the stack first, and restart Claude Desktop after editing the file.
    ```json
    {
      "mcpServers": {
        "competitive-research": {
-         "command": "docker",
+         "command": "/usr/local/bin/docker",
          "args": ["compose", "-f", "/ABSOLUTE/PATH/TO/competitive-analysis-research-agent/docker-compose.yml",
-                  "run", "--rm", "-T", "mcp", "python", "-m", "app.mcp_server", "--stdio"]
+                  "exec", "-T", "mcp", "python", "-m", "app.mcp_server", "--stdio"]
        }
      }
    }
    ```
+   Use the full path to `docker` (`which docker`), because Claude Desktop doesn't load your shell's `PATH`.
+
    The server's instructions tell Claude to confirm with you before starting a run, and to reuse existing reports for ideas that have already been researched.
 
 5) **Run competitor research from the CLI**:
