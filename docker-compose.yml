@@ -72,6 +72,33 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # MCP server (streamable HTTP) for Claude Desktop / Claude Code: http://localhost:8001/mcp
+  mcp:
+    build: ./src
+    command: python -m app.mcp_server --host 0.0.0.0 --port 8001
+    environment:
+      - RESEARCH_API_URL=http://api:8000
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - ./src:/app
+    depends_on:
+      - api
+
+  # Next.js frontend: http://localhost:3001
+  web:
+    build: ./web
+    environment:
+      - API_URL=http://api:8000
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - ./web:/web
+      - /web/node_modules
+      - /web/.next
+    depends_on:
+      - api
+
   # Optional AWS emulation. Start with: docker compose --profile aws up -d
   localstack:
     image: localstack/localstack

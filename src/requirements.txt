@@ -12,3 +12,5 @@ langfuse==5.2.0
 sqlalchemy==2.1.9
 psycopg[binary]==3.3.9
 alembic==1.20.1
+mcp==2.3.0
+httpx==0.28.1

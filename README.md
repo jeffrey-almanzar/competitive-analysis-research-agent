@@ -70,7 +70,34 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
 
    Interactive API docs: http://localhost:8000/docs
 
-3) **Run competitor research from the CLI**:
+3) **Use the web app**: open http://localhost:3001. Describe an idea and follow the run's progress. In the finished report, every claim has its source domain beside it; click a claim to see the quote it came from. Verified claims have a solid teal rule. Unconfirmed ones have a hatched amber rule and are listed separately. The frontend is Next.js 16 and TypeScript in `web/`. It calls the API through a `/api` proxy, so the browser never needs the backend's address.
+
+4) **Connect Claude to the agent (MCP)**: the `mcp` service serves the agent as MCP tools at `http://localhost:8001/mcp`:
+   - `start_research` starts a paid run.
+   - `get_research` returns a run's status and can wait for it to finish.
+   - `get_report` returns the report as Markdown or JSON.
+   - `list_research` lists recent runs.
+   - `list_competitors` lists a report's competitors with their verified pricing.
+
+   For Claude Code:
+   ```bash
+   claude mcp add --transport http competitive-research http://localhost:8001/mcp
+   ```
+   For Claude Desktop, add this to `claude_desktop_config.json` (it starts the server over stdio inside Docker):
+   ```json
+   {
+     "mcpServers": {
+       "competitive-research": {
+         "command": "docker",
+         "args": ["compose", "-f", "/ABSOLUTE/PATH/TO/competitive-analysis-research-agent/docker-compose.yml",
+                  "run", "--rm", "-T", "mcp", "python", "-m", "app.mcp_server", "--stdio"]
+       }
+     }
+   }
+   ```
+   The server's instructions tell Claude to confirm with you before starting a run, and to reuse existing reports for ideas that have already been researched.
+
+5) **Run competitor research from the CLI**:
    Copy `.env.example` to `.env` and fill in `ANTHROPIC_API_KEY` and `EXA_API_KEY`. Then:
    ```bash
    docker compose run --rm api python -m app.research "AI meeting notes for small law firms"
@@ -82,14 +109,14 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
    docker compose run --rm api python -m pytest -q tests
    ```
 
-4) **Tracing (self-hosted Langfuse)**:
+6) **Tracing (self-hosted Langfuse)**:
    ```bash
    ./scripts/init-env.sh                 # one time: random local secrets in .env
    docker compose --profile tracing up -d
    ```
    Open http://localhost:3000 and log in with `LANGFUSE_INIT_USER_EMAIL` / `LANGFUSE_INIT_USER_PASSWORD` from `.env`. Each research run appears as one trace, made of graph-node spans, Claude generations (with token usage) and Exa tool calls. Without the `tracing` profile running, tracing turns itself off.
 
-5) **Evals**:
+7) **Evals**:
    ```bash
    docker compose run --rm api python -m evals.run_eval --cases meal-kits,error-monitoring
    docker compose run --rm api python -m evals.run_eval            # all cases in src/evals/cases.toml
@@ -102,7 +129,7 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
 
    The runner also records cost, tokens, latency and Exa requests. Results go to `.claude/hillclimb/research-report/baseline/`. The first run, and any run after the eval code changes, must add `--approve-harness`.
 
-6) **View logs / stop**:
+8) **View logs / stop**:
    ```bash
    docker compose logs -f api worker
    docker compose down
