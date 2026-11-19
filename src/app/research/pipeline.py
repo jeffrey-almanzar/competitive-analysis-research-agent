@@ -9,8 +9,9 @@
 import logging
 import operator
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Annotated, TypedDict
+from typing import Annotated, Callable, TypedDict
 from xml.sax.saxutils import escape, quoteattr
 
 from langgraph.graph import END, START, StateGraph
@@ -298,15 +299,66 @@ def _usage(rec: telemetry.RunRecorder, trace_url: str | None) -> RunUsage:
     )
 
 
-def run_research(idea: str, max_competitors: int = 6, max_parallel: int = 4) -> Report:
+@dataclass
+class Progress:
+    step: str  # planning | finding_competitors | researching | verifying | analyzing_gaps | done
+    message: str
+    completed: int = 0  # competitors researched so far (during "researching")
+    total: int = 0
+
+
+ProgressCallback = Callable[[Progress], None]
+
+
+def _progress_after(node: str, update: dict, state: dict) -> Progress | None:
+    """Translate a finished graph node into the next user-visible step."""
+    if node == "plan":
+        return Progress("finding_competitors", "Searching for competitors")
+    if node == "find_competitors":
+        n = len(update.get("competitors", []))
+        state["total"], state["completed"] = n, 0
+        if n == 0:
+            return Progress("done", "No competitors found")
+        return Progress("researching", f"Researching {n} competitors", 0, n)
+    if node == "research_competitor":
+        state["completed"] += 1
+        done, total = state["completed"], state["total"]
+        if done < total:
+            return Progress("researching", f"Researched {done} of {total} competitors", done, total)
+        return Progress("verifying", "Checking quotes against sources", done, total)
+    if node == "verify":
+        return Progress("analyzing_gaps", "Analyzing market gaps", state["total"], state["total"])
+    if node == "analyze_gaps":
+        return Progress("done", "Report ready", state["total"], state["total"])
+    return None
+
+
+def run_research(
+    idea: str,
+    max_competitors: int = 6,
+    max_parallel: int = 4,
+    on_progress: ProgressCallback | None = None,
+) -> Report:
     graph = build_graph()
+    notify = on_progress or (lambda p: None)
     with telemetry.recording(reuse=True) as rec, telemetry.observe(
         "research", as_type="agent", input={"idea": idea, "max_competitors": max_competitors}
     ) as root:
-        state = graph.invoke(
+        notify(Progress("planning", "Planning search queries"))
+        state: dict = {}
+        tracker = {"completed": 0, "total": 0}
+        for mode, chunk in graph.stream(
             {"idea": idea, "max_competitors": max_competitors},
             config={"max_concurrency": max_parallel},
-        )
+            stream_mode=["updates", "values"],
+        ):
+            if mode == "values":
+                state = chunk
+                continue
+            for node, update in chunk.items():
+                progress = _progress_after(node, update or {}, tracker)
+                if progress is not None:
+                    notify(progress)
         profiles = state.get("verified_profiles", [])
         gaps = state.get("gaps", [])
         report = Report(

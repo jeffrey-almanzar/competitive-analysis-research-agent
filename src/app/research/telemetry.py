@@ -103,7 +103,14 @@ def _langfuse():
     from langfuse import Langfuse
 
     log.info("Tracing to Langfuse at %s", host)
-    return Langfuse(public_key=public, secret_key=secret, host=host)
+    # The Anthropic SDK emits its own span per request; llm.structured already records each
+    # call as a named generation with usage, so drop the SDK's to avoid double-counting.
+    return Langfuse(
+        public_key=public,
+        secret_key=secret,
+        host=host,
+        should_export_span=lambda span: not span.name.startswith("anthropic."),
+    )
 
 
 @contextlib.contextmanager

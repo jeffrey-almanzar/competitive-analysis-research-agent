@@ -1,28 +1,94 @@
-# Defines API endpoints related to competitive research.
+# Research API: queue a run, poll its progress, fetch the finished report.
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+import uuid
+from datetime import datetime
+from typing import Literal
 
-from app.tasks import celery_app, start_research
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-router = APIRouter()
+from app import repository
+from app.db import get_session
+from app.models import ReportRow
+from app.research.render import to_markdown
+from app.research.schemas import Report
+from app.tasks import run_research_task
+
+router = APIRouter(prefix="/research", tags=["research"])
 
 
 class ResearchRequest(BaseModel):
-    query: str
+    idea: str = Field(min_length=10, max_length=2000, description="What you want to build, in a sentence or two.")
+    max_competitors: int = Field(6, ge=1, le=10)
 
 
-@router.post("/research")
-async def initiate_research(request: ResearchRequest):
-    task = start_research.delay(request.query)
-    return {"task_id": task.id}
+class ProgressOut(BaseModel):
+    step: str
+    message: str
+    completed: int = 0
+    total: int = 0
 
 
-@router.get("/research/{task_id}")
-async def get_research(task_id: str):
-    result = celery_app.AsyncResult(task_id)
+class RunSummary(BaseModel):
+    id: uuid.UUID
+    idea: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    progress: ProgressOut | None
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    links: dict[str, str]
+
+
+class RunDetail(RunSummary):
+    report: Report | None = None
+
+
+def _summary(row: ReportRow, request: Request) -> dict:
+    links = {"self": str(request.url_for("get_research", run_id=row.id))}
+    if row.status == "succeeded":
+        links["markdown"] = str(request.url_for("get_research_markdown", run_id=row.id))
     return {
-        "task_id": task_id,
-        "status": result.status,
-        "result": result.result if result.ready() else None,
+        "id": row.id, "idea": row.idea, "status": row.status, "progress": row.progress, "error": row.error,
+        "created_at": row.created_at, "started_at": row.started_at, "finished_at": row.finished_at,
+        "links": links,
     }
+
+
+@router.post("", status_code=202, response_model=RunSummary)
+def create_research(body: ResearchRequest, request: Request, session: Session = Depends(get_session)):
+    row = repository.create_run(session, body.idea.strip(), body.max_competitors)
+    session.commit()  # the worker must be able to see the row
+    result = run_research_task.delay(str(row.id))
+    row.task_id = result.id
+    return _summary(row, request)
+
+
+@router.get("", response_model=list[RunSummary])
+def list_research(request: Request, limit: int = Query(20, ge=1, le=100), session: Session = Depends(get_session)):
+    return [_summary(r, request) for r in repository.list_runs(session, limit)]
+
+
+@router.get("/{run_id}", response_model=RunDetail, name="get_research")
+def get_research(run_id: uuid.UUID, request: Request, session: Session = Depends(get_session)):
+    row = repository.get_run(session, run_id)
+    if row is None:
+        raise HTTPException(404, "Research run not found")
+    detail = _summary(row, request)
+    if row.status == "succeeded":
+        detail["report"] = repository.load_report(session, run_id)
+    return detail
+
+
+@router.get("/{run_id}/report.md", response_class=PlainTextResponse, name="get_research_markdown")
+def get_research_markdown(run_id: uuid.UUID, session: Session = Depends(get_session)):
+    row = repository.get_run(session, run_id)
+    if row is None:
+        raise HTTPException(404, "Research run not found")
+    if row.status != "succeeded":
+        raise HTTPException(409, f"Report not ready (status: {row.status})")
+    report = repository.load_report(session, run_id)
+    return PlainTextResponse(to_markdown(report), media_type="text/markdown; charset=utf-8")

@@ -43,24 +43,31 @@ Key concepts include the use of FastAPI for building scalable APIs, Celery for d
 
 **Prerequisites:** Docker Desktop (with Docker Compose).
 
-1) **Start the stack** (Redis, FastAPI server, Celery worker):
+1) **Start the stack** (PostgreSQL, Redis, FastAPI server, Celery worker):
    ```bash
    docker compose up -d --build
    ```
-   The `src/` folder is mounted into the containers, so the API reloads automatically when you edit code. Restart the worker after changing tasks: `docker compose restart worker`.
+   The `migrate` service applies database migrations (Alembic) before the API and worker start. The `src/` folder is mounted into the containers, so the API reloads automatically when you edit code. Restart the worker after changing the agent: `docker compose restart worker`.
 
-2) **Check it works**:
+2) **Run research through the API**:
    ```bash
    curl localhost:8000/health
+   # -> {"status": "ok", "database": "ok", "redis": "ok"}
 
    curl -X POST localhost:8000/research \
      -H 'Content-Type: application/json' \
-     -d '{"query": "AI tools"}'
-   # -> {"task_id": "..."}
+     -d '{"idea": "AI meeting notes for small law firms", "max_competitors": 4}'
+   # -> 202 {"id": "...", "status": "queued", "links": {"self": ".../research/<id>"}, ...}
 
-   curl localhost:8000/research/<task_id>
-   # -> {"status": "SUCCESS", "result": {...}}
+   curl localhost:8000/research/<id>
+   # while running: {"status": "running", "progress": {"step": "researching", "completed": 2, "total": 4, ...}}
+   # when done:     {"status": "succeeded", "report": {...}, "links": {"markdown": ".../report.md"}}
+
+   curl localhost:8000/research/<id>/report.md    # the report as Markdown
+   curl localhost:8000/research                    # recent runs
    ```
+   Each POST starts a real research run, which costs about $0.35 for 2 competitors and more for larger reports. Progress moves through `queued → planning → finding_competitors → researching (n/N) → verifying → analyzing_gaps → done`, or ends in `failed` with an `error`. Reports are stored in PostgreSQL in the tables `reports`, `competitors`, `sources`, `claims`, `price_plans` and `market_gaps`. Every claim keeps its quote, source URL and verification result, and links to its stored source page. Fetched pages are cached in Redis for 24 hours (`PAGE_CACHE_TTL_S`, where `0` disables the cache), so re-running research on the same companies skips repeat Exa requests.
+
    Interactive API docs: http://localhost:8000/docs
 
 3) **Run competitor research from the CLI**:
@@ -153,14 +160,15 @@ Deploying to AWS uses the same Terraform configuration used for LocalStack. Here
 
 ## Load Testing
 
-For load testing, we will use k6 to simulate multiple users querying the research API.
+k6 load-tests the API's read paths (`/health`, `GET /research`, `GET /research/{id}`).
 
 1) **Tool**: k6
 2) **Scenario**: Ramp-up to 100 VUs over 1 minute, sustain for 5 minutes
 3) **Execution**:
    ```bash
-   k6 run loadtest/k6.js
+   RUN_ID=<an existing run id> k6 run loadtest/k6.js
    ```
+   The script deliberately never calls `POST /research`. Every POST queues a real research run that spends Claude and Exa credits, so load-testing it against real keys would run up a large bill.
 4) **Observing Results**:
    Use OpenTelemetry to collect and visualize metrics in Grafana.
    - Ensure OpenTelemetry is configured to export metrics to Prometheus.

@@ -5,7 +5,35 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: research
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-research}
+      POSTGRES_DB: research
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U research -d research"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # Applies database migrations, then exits. api and worker wait for it.
+  migrate:
+    build: ./src
+    command: alembic upgrade head
+    environment:
+      - DATABASE_URL=postgresql+psycopg://research:${POSTGRES_PASSWORD:-research}@postgres:5432/research
+    volumes:
+      - ./src:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   api:
     build: ./src
@@ -16,12 +44,16 @@ services:
         required: false
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+psycopg://research:${POSTGRES_PASSWORD:-research}@postgres:5432/research
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./src:/app
       - ./.claude/hillclimb:/hillclimb
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     build: ./src
@@ -30,11 +62,15 @@ services:
         required: false
     environment:
       - REDIS_URL=redis://redis:6379/0
-    command: celery -A app.tasks worker --loglevel=info
+      - DATABASE_URL=postgresql+psycopg://research:${POSTGRES_PASSWORD:-research}@postgres:5432/research
+    command: celery -A app.tasks worker --loglevel=info --concurrency=4
     volumes:
       - ./src:/app
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
 
   # Optional AWS emulation. Start with: docker compose --profile aws up -d
   localstack:
@@ -47,3 +83,6 @@ services:
       - DEBUG=1
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
+
+volumes:
+  postgres_data:

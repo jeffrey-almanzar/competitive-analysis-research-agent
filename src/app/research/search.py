@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from exa_py import Exa
 
-from app.research import telemetry
+from app.research import cache, telemetry
 
 log = logging.getLogger(__name__)
 
@@ -79,8 +79,13 @@ def _company_search(query: str, num_results: int) -> list[Candidate]:
     return [Candidate(url=r.url, title=r.title, snippet=(r.text or "").strip()) for r in response.results]
 
 
+def fetch_site(homepage_url: str, subpages: int = 3) -> list["Page"]:
+    """Fetch a competitor's homepage plus likely pricing/feature subpages (cached)."""
+    return _fetch_site_cached(homepage_url, subpages=subpages)
+
+
 @telemetry.tool("exa.fetch_site")
-def fetch_site(homepage_url: str, subpages: int = 3) -> list[Page]:
+def _fetch_site_uncached(homepage_url: str, subpages: int = 3) -> list[Page]:
     """Fetch a competitor's homepage plus likely pricing/feature subpages."""
     response = _client().get_contents(
         [homepage_url],
@@ -100,8 +105,13 @@ def fetch_site(homepage_url: str, subpages: int = 3) -> list[Page]:
     return pages
 
 
+def fetch_reviews(company: str, homepage_url: str, num_results: int = 4) -> list["Page"]:
+    """Find review and discussion pages about a company (cached)."""
+    return _fetch_reviews_cached(company, homepage_url, num_results=num_results)
+
+
 @telemetry.tool("exa.search_reviews")
-def fetch_reviews(company: str, homepage_url: str, num_results: int = 4) -> list[Page]:
+def _fetch_reviews_uncached(company: str, homepage_url: str, num_results: int = 4) -> list[Page]:
     """Find review and discussion pages about a company on review sites and Reddit."""
     # Exa's include_text accepts one phrase of up to 5 words.
     name_phrase = " ".join(company.split()[:5])
@@ -140,3 +150,7 @@ def mentions_company(company: str, text: str) -> bool:
         return False
     haystack = _tokens(text)
     return f" {name} " in haystack or f" {name.replace(' ', '')} " in haystack
+
+
+_fetch_site_cached = cache.cached_pages("site", Page)(_fetch_site_uncached)
+_fetch_reviews_cached = cache.cached_pages("reviews", Page)(_fetch_reviews_uncached)
