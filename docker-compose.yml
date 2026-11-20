@@ -99,17 +99,5 @@ services:
     depends_on:
       - api
 
-  # Optional AWS emulation. Start with: docker compose --profile aws up -d
-  localstack:
-    image: localstack/localstack
-    profiles: ["aws"]
-    ports:
-      - "4566:4566"
-    environment:
-      - SERVICES=ecs,rds,sqs
-      - DEBUG=1
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock"
-
 volumes:
   postgres_data:

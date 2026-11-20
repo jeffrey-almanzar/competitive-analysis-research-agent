@@ -1,0 +1,37 @@
+direction: down
+
+you: "Browser\n(one allowed IP)" {shape: person}
+
+aws: AWS us-east-2 · default VPC {
+  alb: "Application Load Balancer\nport 80, allowed IP only"
+
+  ecs: ECS Fargate (arm64) {
+    direction: right
+    web: "web\nNext.js"
+    api: "api\nmigrate → uvicorn"
+    worker: "worker\nCelery"
+    redis: "redis"
+    web -> api: "api.research.internal"
+    api -> redis
+    worker -> redis
+  }
+
+  rds: "RDS PostgreSQL 17\ndb.t4g.micro · private" {shape: cylinder}
+
+  support: Supporting services {
+    direction: right
+    sm: "Secrets Manager\nAnthropic · Exa · DB URL"
+    ecr: "ECR\napi + web images"
+    cw: "CloudWatch Logs"
+    cm: "Cloud Map\nprivate DNS"
+  }
+
+  alb -> ecs.web
+  ecs.api -> rds
+  ecs.worker -> rds
+  support -> ecs: secrets, images, logs, DNS {style.stroke-dash: 4}
+}
+
+ext: "Claude API + Exa" {shape: cloud}
+you -> aws.alb: HTTP
+aws.ecs.worker -> ext: "public IP, no NAT gateway"

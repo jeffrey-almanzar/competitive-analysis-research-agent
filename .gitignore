@@ -19,3 +19,10 @@ src/reports/
 
 # Superseded eval runs
 .claude/hillclimb/research-report-pilot-*/
+
+# Terraform state and plans contain secrets
+infra/aws/.terraform/
+infra/aws/*.tfstate
+infra/aws/*.tfstate.*
+infra/aws/tfplan
+infra/aws/tfplan-ip

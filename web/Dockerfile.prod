@@ -1,0 +1,17 @@
+# Production image: build once, serve with `next start` (no dev server, no file watching).
+FROM node:22-slim
+WORKDIR /web
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY . .
+# The /api/* rewrite target is compiled into the build, so the API address is a build arg.
+ARG API_URL
+ENV API_URL=${API_URL}
+RUN npx next build
+
+ENV NODE_ENV=production
+EXPOSE 3001
+CMD ["npx", "next", "start", "-p", "3001", "-H", "0.0.0.0"]

@@ -1,328 +1,260 @@
-# Competitive Analysis Research Agent
+# Competitive Research Agent with Claude, LangGraph and Source Verification
 
-**Problem:** Anyone starting a business, product, or channel needs to know who they’re up against, what those competitors charge, and where the gaps are. Doing that properly takes days of searching and reading. Chatbots answer in seconds, but they invent details and rarely show where a claim came from, so you can’t trust the result enough to spend money on it.
+An agent that researches the competition for a business idea. It finds competitors, reads their websites, pricing pages and customer reviews, and returns a report in which every claim cites the page it came from and a verbatim quote. Code checks each quote against the fetched page, and anything that can't be confirmed is flagged instead of presented as fact. The report ends with market gaps, and each gap may only cite verified evidence.
 
-**Solution:** Describe what you want to build, and the agent researches the market for you over several steps. It finds competitors, reads their websites, pricing, and reviews, and returns a structured report where every claim links to its source. It also points out where competitors are weak and how you could stand out. When it can’t back a claim with a source, it flags it instead of guessing.
+The hard part isn't calling a model. It's making the output trustworthy enough to act on: verification that the model can't talk its way past, an eval that measures whether the citations actually hold up, and a pipeline that runs for one to two minutes per report without blocking anyone.
 
-**Impact:** For users: research that takes days now takes minutes, with sources they can check before making a decision.
-For my career: it’s the most in-demand agent pattern, multi-step research with tools. Running it as an MCP server adds MCP practice, which appeared in 22% of postings and 32% of software engineering roles.
+**Stack:** Python · FastAPI · LangGraph · Claude API (Haiku / Sonnet / Opus 5.5) · Exa · Celery · Redis · PostgreSQL · SQLAlchemy · Alembic · Next.js 16 · TypeScript · MCP · Langfuse · Docker · Terraform · AWS (ECS Fargate, RDS, ALB, ECR, Secrets Manager, Cloud Map, CloudWatch)
 
-**Technologies:** Python, FastAPI, Pydantic, and Celery, Redis, Claude API, LangGraph, MCP, Exa Web Search API, PostgreSQL, Evals, Next.js, TypeScript, OpenTelemetry, Langfuse, AWS Fargate, AWS RDS, AWS SQS, Terraform, GitHub Actions, Docker
+## At a glance
 
+| | |
+| --- | --- |
+| **What it does** | Turns "what I want to build" into a sourced competitor report: products, pricing, positioning, customer praise and complaints, and market gaps. |
+| **Trust mechanism** | Every claim carries a URL and a verbatim quote. Code confirms the quote is on that page. Gap analysis only sees confirmed facts. |
+| **Evaluation** | 15 human-reviewed cases. Citation support 0.555, quote-found rate 0.989, competitor recall 0.568, all gaps grounded. Judged by Claude Sonnet 5.5. |
+| **Interfaces** | Web app, REST API, MCP server (used from Claude Desktop) and CLI. |
+| **Cost control** | Model picker with per-model capability and cost hints, cheapest by default. A 6-competitor report costs about $0.02 on Haiku (estimated) and $0.94 on Opus (measured). |
+| **Tests** | 38 offline tests (Claude, Exa and Postgres faked). Free to run. |
+| **Deployed** | AWS ECS Fargate (arm64), RDS PostgreSQL and an ALB, all from Terraform: 29 resources, one-command deploy and teardown. |
 
-## Demo
+![A report served from AWS: source check, every claim verified, evidence-backed market gaps](docs/screenshots/aws-app-report.png)
+<sub>A report served from the AWS deployment. Each segment of the strip is one claim. Cyan means its quote was found word for word on the cited page; hatched amber means it couldn't be confirmed.</sub>
 
-Screenshots from real runs on a local stack.
+## Contents
 
-### Web app
+- [The problem](#the-problem)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Key decisions and trade-offs](#key-decisions-and-trade-offs)
+- [Engineering decisions](#engineering-decisions)
+- [Evaluation](#evaluation)
+- [What testing caught](#what-testing-caught)
+- [Testing](#testing)
+- [Observability](#observability)
+- [Deployment on AWS](#deployment-on-aws)
+- [Using it from Claude (MCP)](#using-it-from-claude-mcp)
+- [Limitations and next steps](#limitations-and-next-steps)
+- [Repository map](#repository-map)
 
-You describe the idea, then pick a model and how many competitors to research. A hint under the controls shows the chosen model's strengths, its estimated cost and its token prices. Claude Haiku 5.5, the lowest-cost model, is selected by default.
+Full operating instructions are in [docs/RUNNING.md](docs/RUNNING.md).
 
-![New research form with model and competitor dropdowns](docs/screenshots/web-new-research.png)
+## The problem
 
-While the agent runs, the page shows each step of the LangGraph pipeline, with one tick per competitor researched.
+Anyone starting a business, a product or a channel needs to know who they're up against, what those competitors charge, and where the openings are. Doing it properly takes days of searching and reading. A chatbot answers in seconds, but it invents details and rarely shows where a claim came from, so the answer isn't something to spend money on.
 
-![Research in progress](docs/screenshots/web-research-progress.png)
+Asking the model to "cite sources" doesn't solve this. A model can attach a real URL to a claim the page never makes, or paraphrase a page into something stronger than what it says. The citation has to be checked by something other than the model that wrote it.
 
-Each report opens with a source check. Every segment of the strip is one claim or price: cyan means its quote was found word for word on the cited page, and hatched amber means it couldn't be confirmed. Below that are market gaps, ranked and backed by verified evidence.
+## Quick start
 
-![Report source check and market gaps](docs/screenshots/web-report-source-check.png)
+```bash
+cp .env.example .env              # set ANTHROPIC_API_KEY and EXA_API_KEY
+docker compose up -d --build      # Postgres, Redis, API, worker, web, MCP
+```
 
-Each competitor's claims sit on an evidence rail. Click a claim to see the verbatim quote and the page it came from.
+| URL | What's there |
+| --- | --- |
+| http://localhost:3001 | Web app: start research, follow progress, read reports |
+| http://localhost:8000/docs | API docs |
+| http://localhost:8001/mcp | MCP server |
 
-![Competitor claims with sources](docs/screenshots/web-report-competitors.png)
+```bash
+docker compose run --rm api python -m pytest -q tests    # 38 tests, no API keys needed
+```
 
-### Claude Desktop (MCP)
-
-The agent runs as a local MCP server, connected to Claude Desktop over stdio.
-
-![competitive-research connected in Claude Desktop](docs/screenshots/claude-desktop-connector.png)
-
-Claude can list past reports, which only reads the database and calls no paid API:
-
-![Claude listing research reports through MCP](docs/screenshots/claude-desktop-list-reports.png)
-
-Claude can also read a report's market gaps and judge how strong the evidence behind each one is:
-
-![Claude reviewing a report's market gaps through MCP](docs/screenshots/claude-desktop-market-gaps.png)
-
-## Overview
-
-The Competitive Analysis Research Agent is designed to automate the labor-intensive process of market research by utilizing a multi-step agent pattern. This project focuses on gathering competitive intelligence by identifying competitors, analyzing their websites, pricing, and customer reviews, and generating a structured report that provides actionable insights with verifiable sources. This approach mitigates the common issue of chatbot-generated content, which often lacks traceability and accuracy, by ensuring every claim is backed by a source. 
-
-At a high level, the system involves several components working in concert: a FastAPI-based backend handling the request lifecycle, Celery for asynchronous task management, Redis for caching, and PostgreSQL for structured data storage. The research process leverages the Claude API for natural language processing, Exa Web Search API for web scraping, and LangGraph for data parsing and manipulation. The entire system is orchestrated under an MCP (Multi-Component Pattern) server to handle distributed components effectively, and is deployed on AWS using Fargate for container management and RDS for database services.
-
-Key concepts include the use of FastAPI for building scalable APIs, Celery for distributed task execution, and OpenTelemetry for monitoring and tracing. This project also explores the use of Terraform for infrastructure as code, Docker for containerization, and GitHub Actions for CI/CD. The integration of these technologies demonstrates a comprehensive approach to building a modern, cloud-native application.
+Each research run calls Claude and Exa. With the default model, Haiku 5.5, a 6-competitor report is estimated at about two cents.
 
 ## Architecture
 
-```
-+----------------+     +----------------+     +----------------+     +----------------+
-| FastAPI Server |<--->|    Celery      |<--->|    Redis       |<--->| PostgreSQL     |
-+----------------+     +----------------+     +----------------+     +----------------+
-        |                    |                     |                     |
-        v                    v                     v                     v
-+----------------+     +----------------+     +----------------+     +----------------+
-| Claude API     |     | Exa Web Search |     | LangGraph      |     | MCP Server     |
-+----------------+     +----------------+     +----------------+     +----------------+
-```
-- **FastAPI Server**: Handles incoming HTTP requests and routes them to the appropriate services.
-- **Celery**: Manages asynchronous tasks, allowing for parallel processing of research tasks.
-- **Redis**: Serves as a caching layer to optimize performance and reduce load on the database.
-- **PostgreSQL**: Stores structured data such as competitor information and research reports.
-- **Claude API**: Utilized for NLP tasks, such as parsing competitor data and generating insights.
-- **Exa Web Search API**: Conducts web scraping to gather data from competitor websites.
-- **LangGraph**: Processes and organizes scraped data into a coherent structure.
-- **MCP Server**: Coordinates the interaction between distributed components and ensures data consistency.
+![Architecture](docs/diagrams/architecture.svg)
 
-## Running Locally
+| Component | Role |
+| --- | --- |
+| **Web app** (`web/`) | Next.js 16 and TypeScript. Server components read from the API. The browser goes through a `/api` proxy, so it never needs the backend's address. |
+| **API** (`src/app/routes/`) | FastAPI. `POST /research` returns 202 with a run ID. `GET /research/{id}` returns status, step-by-step progress and, when done, the report. `GET /models` serves the model list. |
+| **Worker** (`src/app/tasks.py`) | Celery. Runs the agent, writes progress to Postgres after every graph step and saves the finished report. Acknowledges tasks late, so a crashed worker's run is redelivered. A finished run is never redone. |
+| **Agent** (`src/app/research/pipeline.py`) | LangGraph: plan → find competitors → research each competitor in parallel → verify → analyze gaps. |
+| **Verification** (`src/app/research/verify.py`) | Deterministic quote matching against the fetched page text. |
+| **Storage** (`src/app/models.py`) | PostgreSQL via SQLAlchemy 2 and Alembic. Six tables: reports, competitors, sources, claims, price plans and market gaps. Claims link to their stored source page. |
+| **Page cache** (`src/app/research/cache.py`) | Redis cache of fetched pages (24 h). Repeat research skips repeat Exa requests. If Redis is down, pages are fetched directly. |
+| **MCP server** (`src/app/mcp_server.py`) | Five tools over the same HTTP API, so it gets the same validation as the web app. |
 
-**Prerequisites:** Docker Desktop (with Docker Compose).
+### How a report is built
 
-1) **Start the stack** (PostgreSQL, Redis, FastAPI server, Celery worker):
-   ```bash
-   docker compose up -d --build
-   ```
-   The `migrate` service applies database migrations (Alembic) before the API and worker start. The `src/` folder is mounted into the containers, so the API reloads automatically when you edit code. Restart the worker after changing the agent: `docker compose restart worker`.
+1. **Plan.** Claude writes 3–5 search queries that describe what a competitor would look like.
+2. **Find.** Exa's company search returns candidates, de-duplicated by domain. Claude picks the real competitors. Any URL that wasn't in the search results is dropped, so the model can't invent a company.
+3. **Research, in parallel.** For each competitor, Exa fetches the homepage, the pricing and feature pages, and third-party reviews from G2, Capterra, TrustRadius, Trustpilot, Product Hunt and Reddit. A review page counts only if it names the company. Claude extracts claims and price plans with Pydantic structured outputs, each with a source URL and a verbatim quote.
+4. **Verify.** Code checks every quote against the cited page's text. Prices must also have their numbers in the quote.
+5. **Analyze gaps.** Claude sees only verified claims, each with an ID, and must cite IDs for every gap. Unknown or unverified IDs are removed in code. A gap left with no evidence is shown as unconfirmed.
 
-2) **Run research through the API**:
-   ```bash
-   curl localhost:8000/health
-   # -> {"status": "ok", "database": "ok", "redis": "ok"}
+## Key decisions and trade-offs
 
-   curl -X POST localhost:8000/research \
-     -H 'Content-Type: application/json' \
-     -d '{"idea": "AI meeting notes for small law firms", "max_competitors": 4, "model": "claude-sonnet-5-5"}'
-   # -> 202 {"id": "...", "status": "queued", "links": {"self": ".../research/<id>"}, ...}
-
-   curl localhost:8000/research/<id>
-   # while running: {"status": "running", "progress": {"step": "researching", "completed": 2, "total": 4, ...}}
-   # when done:     {"status": "succeeded", "report": {...}, "links": {"markdown": ".../report.md"}}
-
-   curl localhost:8000/research/<id>/report.md    # the report as Markdown
-   curl localhost:8000/research                    # recent runs
-   ```
-   `model` is one of `claude-haiku-5-5` (the default and cheapest), `claude-sonnet-5-5` or `claude-opus-5-5`. `GET /models` lists each one with a capability hint, token prices and an estimated cost per competitor. The Opus figure is measured; the Haiku and Sonnet figures are scaled from it by price. The CLI (`--model`), the MCP `start_research` tool and the web app's model dropdown all use this list. The eval keeps Opus 5.5 as its default model, to match its baseline.
-
-   Each POST starts a real research run, which costs about $0.35 for 2 competitors and more for larger reports. Progress moves through `queued → planning → finding_competitors → researching (n/N) → verifying → analyzing_gaps → done`, or ends in `failed` with an `error`. Reports are stored in PostgreSQL in the tables `reports`, `competitors`, `sources`, `claims`, `price_plans` and `market_gaps`. Every claim keeps its quote, source URL and verification result, and links to its stored source page. Fetched pages are cached in Redis for 24 hours (`PAGE_CACHE_TTL_S`, where `0` disables the cache), so re-running research on the same companies skips repeat Exa requests.
-
-   Interactive API docs: http://localhost:8000/docs
-
-3) **Use the web app**: open http://localhost:3001. Describe an idea and follow the run's progress. In the finished report, every claim has its source domain beside it; click a claim to see the quote it came from. Verified claims have a solid teal rule. Unconfirmed ones have a hatched amber rule and are listed separately. The frontend is Next.js 16 and TypeScript in `web/`. It calls the API through a `/api` proxy, so the browser never needs the backend's address.
-
-4) **Connect Claude to the agent (MCP)**: the `mcp` service serves the agent as MCP tools at `http://localhost:8001/mcp`:
-   - `start_research` starts a paid run.
-   - `get_research` returns a run's status and can wait for it to finish.
-   - `get_report` returns the report as Markdown or JSON.
-   - `list_research` lists recent runs.
-   - `list_competitors` lists a report's competitors with their verified pricing.
-
-   For Claude Code:
-   ```bash
-   claude mcp add --transport http competitive-research http://localhost:8001/mcp
-   ```
-   For Claude Desktop, open **Settings → Developer → Edit Config** (this opens `~/Library/Application Support/Claude/claude_desktop_config.json`) and add the server below. Claude Desktop then runs the MCP server over stdio inside the already-running `mcp` container. Start the stack first, and restart Claude Desktop after editing the file.
-   ```json
-   {
-     "mcpServers": {
-       "competitive-research": {
-         "command": "/usr/local/bin/docker",
-         "args": ["compose", "-f", "/ABSOLUTE/PATH/TO/competitive-analysis-research-agent/docker-compose.yml",
-                  "exec", "-T", "mcp", "python", "-m", "app.mcp_server", "--stdio"]
-       }
-     }
-   }
-   ```
-   Use the full path to `docker` (`which docker`), because Claude Desktop doesn't load your shell's `PATH`.
-
-   The server's instructions tell Claude to confirm with you before starting a run, and to reuse existing reports for ideas that have already been researched.
-
-5) **Run competitor research from the CLI**:
-   Copy `.env.example` to `.env` and fill in `ANTHROPIC_API_KEY` and `EXA_API_KEY`. Then:
-   ```bash
-   docker compose run --rm api python -m app.research "AI meeting notes for small law firms"
-   ```
-   It prints a Markdown report and saves `.md` and `.json` copies to `src/reports/`. The agent is a LangGraph graph (`plan → find_competitors → research_competitor ×N in parallel → verify → analyze_gaps`). Each claim and price comes with its source URL and a verbatim quote. A claim counts as verified only if code finds its quote on the cited page. Anything that fails is listed under _Flagged_, and the market-gap analysis may cite only verified claims. Options: `--max-competitors N`, `-v`.
-
-   Run the offline tests (no API keys needed):
-   ```bash
-   docker compose run --rm api python -m pytest -q tests
-   ```
-
-6) **Tracing (self-hosted Langfuse)**:
-   ```bash
-   ./scripts/init-env.sh                 # one time: random local secrets in .env
-   docker compose --profile tracing up -d
-   ```
-   Open http://localhost:3000 and log in with `LANGFUSE_INIT_USER_EMAIL` / `LANGFUSE_INIT_USER_PASSWORD` from `.env`. Each research run appears as one trace, made of graph-node spans, Claude generations (with token usage) and Exa tool calls. Without the `tracing` profile running, tracing turns itself off.
-
-7) **Evals**:
-   ```bash
-   docker compose run --rm api python -m evals.run_eval --cases meal-kits,error-monitoring
-   docker compose run --rm api python -m evals.run_eval            # all cases in src/evals/cases.toml
-   ```
-   This runs the real agent on each case and scores it on four measures:
-   - **Citation support** (headline): share of verified claims whose quote actually backs them up, judged by Claude Sonnet 5.5.
-   - **Quote found rate**: share of claims whose quote appears on the cited page. 1 minus this is the flag rate.
-   - **Competitor recall**: share of each case's expected competitors that the report found.
-   - **Gap grounding**: share of market gaps backed by verified evidence.
-
-   The runner also records cost, tokens, latency and Exa requests. Results go to `.claude/hillclimb/research-report/baseline/`. The first run, and any run after the eval code changes, must add `--approve-harness`.
-
-8) **View logs / stop**:
-   ```bash
-   docker compose logs -f api worker
-   docker compose down
-   ```
-
-## Local Environment (Cloud Simulation)
-
-To simulate the AWS environment locally, start LocalStack using the optional `aws` profile.
-
-1) **Emulated Services**: AWS Fargate (ECS), RDS, SQS
-2) **Start LocalStack**:
-   ```bash
-   docker compose --profile aws up -d
-   ```
-3) **Deploy Terraform on LocalStack**:
-   ```bash
-   cd src/infra
-   terraform init
-   terraform apply -var 'endpoint_url=http://localhost:4566'
-   ```
-4) **Configure Application**:
-   Set environment variables to point to LocalStack endpoints:
-   ```bash
-   export AWS_ENDPOINT_URL=http://localhost:4566
-   ```
-5) **Verify Setup**:
-   Use LocalStack CLI to check resources:
-   ```bash
-   awslocal ecs list-clusters
-   awslocal rds describe-db-instances
-   ```
-
-## Cloud Deployment
-
-Deploying to AWS uses the same Terraform configuration used for LocalStack. Here are the steps:
-
-1) **Update Terraform Configuration**: Change the provider configuration to use real AWS credentials and region.
-   ```hcl
-   provider "aws" {
-     region = "us-west-2"
-     access_key = "<YOUR_ACCESS_KEY>"
-     secret_key = "<YOUR_SECRET_KEY>"
-   }
-   ```
-2) **Deploy**:
-   ```bash
-   cd src/infra
-   terraform init
-   terraform apply
-   ```
-3) **Post-Deployment Checklist**:
-   - Ensure all ECS tasks are running without errors.
-   - Check RDS instance accessibility.
-   - Verify SQS queues are correctly configured.
-
-## Load Testing
-
-k6 load-tests the API's read paths (`/health`, `GET /research`, `GET /research/{id}`).
-
-1) **Tool**: k6
-2) **Scenario**: Ramp-up to 100 VUs over 1 minute, sustain for 5 minutes
-3) **Execution**:
-   ```bash
-   RUN_ID=<an existing run id> k6 run loadtest/k6.js
-   ```
-   The script deliberately never calls `POST /research`. Every POST queues a real research run that spends Claude and Exa credits, so load-testing it against real keys would run up a large bill.
-4) **Observing Results**:
-   Use OpenTelemetry to collect and visualize metrics in Grafana.
-   - Ensure OpenTelemetry is configured to export metrics to Prometheus.
-   - Visualize in Grafana dashboard.
-
-## Target Metrics
-
-| Metric | Target | How to Measure |
+| Decision | Instead of | Why |
 | --- | --- | --- |
-| Target QPS / RPS | 1,000 sustained req/s | Measured using k6 and OpenTelemetry metrics exported to Prometheus. |
-| p50 / p95 / p99 latency | p99 < 300ms | Latency is measured during load tests with k6 and monitored using OpenTelemetry. |
-| Error rate | < 0.1% | Error rate is tracked by monitoring HTTP error responses during load tests. |
-| Saturation point | Degradation starting at ~2,500 req/s | Identified during load tests by observing latency spikes and error rates. |
+| Verify quotes in code by normalized substring match | Asking the model whether its own citations are right | Deterministic, free and auditable. A model grading itself can be persuaded; a string match can't. |
+| Gap analysis sees only verified claims, with IDs checked in code | Free-form analysis over everything extracted | Every conclusion traces to a confirmed quote. Invented evidence IDs are removed, not trusted. |
+| LangGraph with `Send` fan-out, one branch per competitor | A sequential loop | Competitors are researched in parallel. One failed site doesn't sink the report. Graph updates drive the per-step progress UI. |
+| Async runs (Celery) with progress in Postgres | One long HTTP request | Runs take 1–2 minutes. Clients poll a cheap `GET`, and progress survives API restarts. |
+| Pydantic structured outputs | Parsing JSON out of prose | Responses validate against the schema or fail loudly. No regex repair. |
+| A single model list, cheapest model by default | One hard-coded model | Haiku costs about 1/40 of Opus per competitor. Users choose quality against cost, with the trade-off shown before they run. |
+| A different model (Sonnet 5.5) judges citations in the eval | The agent's own model | Avoids the model grading its own work. |
+| MCP server calls the HTTP API | MCP reading the database directly | One code path with the same validation, and the MCP server holds no credentials. |
+| Fargate in public subnets, IP-restricted ALB, no NAT gateway | Private subnets with NAT, plus a login | A short-lived demo for about $0.15/hour. The IP allow-list stands in for authentication; see [Limitations](#limitations-and-next-steps). |
 
-## Testing (Unit / Integration)
+## Engineering decisions
 
-Unit and integration tests are crucial to ensure the reliability of the Competitive Analysis Research Agent.
+### Verification the model can't argue with
 
-- **Unit Tests**: Focus on individual functions, especially those interacting with external APIs.
-  ```python
-  def test_parse_competitor_data():
-      raw_data = "..."
-      parsed_data = parse_competitor_data(raw_data)
-      assert parsed_data is not None
-  ```
+`verify.find_quote` normalizes both the quote and the page text before matching. It lowercases, decodes HTML entities, removes Markdown and link syntax, unifies curly quotes and dashes, and collapses whitespace. Quotes may skip text with `...`, as long as the fragments appear in order. Quotes under 12 characters can't be verified, so a vague one-word quote can't pass. Each claim keeps a note explaining why it passed or failed, for example `quote not found on cited page` or `cited page was not fetched`.
 
-- **Integration Tests**: Test the complete flow from API request to data retrieval and report generation.
-  ```python
-  def test_research_workflow(client):
-      response = client.post('/research', json={'query': 'AI tools'})
-      assert response.status_code == 200
-      assert 'task_id' in response.json()
-  ```
+The check proves a quote **exists** on the page. It doesn't prove the quote **supports** the claim. That gap is what the eval measures.
 
-## Technical Challenges
+### Model choice without surprise bills
 
-### Data Consistency in Distributed Systems
+`src/app/research/models.py` is the single list of models. The API, worker, MCP server, CLI, eval runner and web app all read from it. Each model has a capability hint, token prices and a cost per competitor. The Opus figure is measured from the eval baseline; Haiku and Sonnet are scaled by price and labelled as estimates in the UI. The chosen model is stored on the run and applied through a context variable, which LangGraph copies into its worker threads, so every parallel branch uses it. A test checks this.
 
-**Why it's hard:** Ensuring data consistency across multiple services and asynchronous tasks can be challenging, especially when dealing with eventual consistency models.
+Claude Haiku 5.5 has no server-side refusal fallback, and sending the fallback parameter to it returns a 400. Each model entry records whether it supports the fallback, and a test covers each model.
 
-**How it's solved:** This project uses Redis as a centralized cache to maintain interim data states, and Celery ensures task idempotency by checking task completion before proceeding.
+### Progress you can watch
 
-### Asynchronous Task Management
+The worker streams the graph's updates (`stream_mode=["updates", "values"]`) and turns each finished node into a progress event. That includes one event per competitor branch, which the web app shows as "researching 3/6". Progress is written to Postgres, not held in memory, so any API instance can serve it.
 
-**Why it's hard:** Managing and scaling asynchronous tasks without overloading the system is complex.
+## Evaluation
 
-**How it's solved:** Celery is configured with worker pools and rate limiting to control task execution and prevent bottlenecks.
+Fifteen business ideas across B2B SaaS, dev tools, consumer, marketplace, vertical SaaS, hardware, fintech and health. Each has 3–5 well-known competitors that a good report should find, and each list was reviewed by a human. The runner calls the real agent and records cost, tokens and latency. Failed attempts go to an error log rather than being scored as zero, runs resume where they stopped, and the runner refuses to run if the eval code changes without re-approval.
 
-### Source Verification
+| Metric | What it measures | Baseline (Opus 5.5, 15 cases) |
+| --- | --- | --- |
+| **Citation support** | Share of verified claims whose quote, on its own, backs the whole claim. Judged by Sonnet 5.5 as supported, partial or unsupported. | **0.555** ± 0.021 |
+| Quote found | Share of claims whose quote is on the cited page | 0.989 ± 0.008 |
+| Competitor recall | Share of the expected competitors the report found | 0.568 ± 0.145 |
+| Gap grounding | Share of gaps backed by verified evidence | 1.000 |
 
-**Why it's hard:** Automatically verifying the credibility of sources and linking them correctly adds complexity.
+The full run cost $15.66 ($13.87 agent, $1.79 judge) and took 10 minutes. The median report took 88 s. Before the full run, the judge was checked on known answers: it rejected an empty quote, "I don't know" and an off-topic quote, marked an overreaching claim "partial", and passed an exact match.
 
-**How it's solved:** Each claim is linked to its source by storing source metadata in PostgreSQL, and claims without verifiable sources are flagged during processing.
+**What the baseline shows:**
+- **Claims overreach their quotes.** About 45% of verified claims are "partial": the claim bundles more facts than the one short quote it cites. For example, the quote *"Sentry supports over 100 programming languages and frameworks"* was cited for a claim that added *"including iOS and Android."* The quote check can't see this; the judge can.
+- **Recall misses market leaders.** For "AI sales-call notetaker", the agent found none of Gong, Otter, Fireflies or Fathom and picked smaller vendors instead. Exa's company search surfaces long-tail companies, and nothing in the selection step favours incumbents.
 
+Both are the next things to fix, and the eval can measure the improvement. Details are in [metrics.md](.claude/hillclimb/research-report/metrics.md).
 
-## Takeaways
+## What testing caught
 
-- Implemented a scalable FastAPI application using asynchronous task management with Celery.
-- Deployed a cloud-native application using Terraform and AWS Fargate.
-- Conducted load testing with k6 and monitored performance with OpenTelemetry and Grafana.
-- Ensured data consistency and source verification in a distributed system using Redis and PostgreSQL.
+| Problem | Found by | Fix |
+| --- | --- | --- |
+| Exa returns subpages as plain dicts, which crashed the site fetch | First real run | Read both shapes |
+| Review search returned pages about *other* companies ("Smartnotation" for "Smartnote") | Inspecting a real report | Review pages must name the company as whole words in the title or URL |
+| Page text was HTML-escaped in the prompt, so Claude quoted `&amp;` and correct claims were flagged | 3 false flags in a real run | The quote check decodes HTML entities |
+| Judge cost showed $0.00 | Eval pilot ("a zero is a bug") | Thread pools don't inherit context variables; copy the context per job |
+| Langfuse counted every Claude call twice | Comparing trace counts with call counts | Filter out the Anthropic SDK's own spans |
+| Haiku 5.5 rejects the refusal-fallback parameter | Reading the model's migration notes | Per-model fallback setting, with a test per model |
+| The k6 load test posted to `/research`, which would have queued thousands of paid runs | Review after runs became async | The load test now hits only the read endpoints |
+| AWS rejected a security-group description containing `>`, and the deploy wrapper hid the failed exit code | First `apply` | Fixed the description; the wrapper now propagates failures |
+| The organization's service control policy denies compute in every region except us-east-2 | Read-only checks across regions | Deploy to us-east-2 |
 
-## Learning Path
+## Testing
 
-### FastAPI
+38 tests, all offline, with Claude and Exa faked and SQLite in place of Postgres:
 
-FastAPI is a modern, fast (high-performance), web framework for building APIs with Python 3.6+ based on standard Python type hints.
+| Area | What's proven |
+| --- | --- |
+| Verification | Markdown, smart quotes, HTML entities and `...` fragments still match; paraphrases and too-short quotes are rejected |
+| Agent graph | Invented competitor URLs dropped; unverified claims kept out of gap evidence; one failing competitor doesn't sink the report; usage recorded across parallel branches |
+| Service | Report saved and loaded back identical; progress events in order; Celery task success, failure and redelivery; API validation; page cache |
+| Models | The run's model reaches every Claude call; fallback parameter only sent where supported; API default and validation; Haiku long-prompt pricing |
+| MCP | All five tools through the real API; errors readable by clients; `start_research` never starts a paid run in tests |
+| Eval harness | Recall matching, judge scoring, cost maths, unapproved-harness refusal, failed attempts not scored as zero, resume |
 
-1. Understand the basics of FastAPI and its asynchronous capabilities.
-2. Build a simple API with endpoints and learn how to handle requests and responses.
-3. Integrate Pydantic for data validation and serialization.
-4. Implement middleware and dependency injection.
-5. Explore advanced features like WebSockets and background tasks.
+## Observability
 
+Self-hosted Langfuse (`docker compose --profile tracing up -d`) records one trace per research run: a span per graph node, a generation per Claude call with model and token usage, and a tool span per Exa request. Every run also stores a usage summary on the report itself: models, calls, tokens, Exa requests, latency and the trace link. In AWS, container logs go to CloudWatch.
 
-- https://fastapi.tiangolo.com/
-- https://www.udemy.com/course/fastapi-the-complete-guide/
+## Deployment on AWS
 
-### OpenTelemetry
+![AWS deployment](docs/diagrams/aws.svg)
 
-OpenTelemetry provides a single set of APIs, libraries, agents, and instrumentation to capture distributed traces and metrics from your applications.
+| Concern | Choice |
+| --- | --- |
+| Compute | ECS Fargate, arm64 (Graviton). Four services: web, api, worker, redis |
+| Database | RDS PostgreSQL 17, `db.t4g.micro`, private; migrations run in an init container before the API starts |
+| Service discovery | Cloud Map private DNS (`api.research.internal`, `redis.research.internal`) |
+| Secrets | Secrets Manager, injected into containers at start |
+| Access | ALB on port 80, security group open to a single /32 |
+| Images | ECR; built for `linux/arm64` and pushed by `scripts/aws.sh` |
+| Cost | About $0.15/hour (list pricing); no NAT gateway |
+| Lifecycle | `scripts/aws.sh plan / apply / status / allow-ip / destroy`; no deletion protection or final snapshot, so teardown is clean |
 
-1. Learn the basics of distributed tracing and metrics.
-2. Set up OpenTelemetry in a Python application.
-3. Instrument your application to capture traces and metrics.
-4. Export data to Prometheus and visualize in Grafana.
-5. Explore the use of OpenTelemetry with other languages and frameworks.
+![ECS services running on Fargate](docs/screenshots/aws-ecs-services.png)
 
-- https://opentelemetry.io/docs/
-- https://www.youtube.com/watch?v=5kBfF8j0XfI
+<details>
+<summary>More from the deployment</summary>
+
+The web app served from the load balancer:
+
+![Web app on AWS](docs/screenshots/aws-app-home.png)
+
+Competitor claims with sources:
+
+![Competitor claims on AWS](docs/screenshots/aws-app-competitors.png)
+
+The load balancer target is healthy:
+
+![ALB target health](docs/screenshots/aws-alb-target-health.png)
+
+RDS PostgreSQL:
+
+![RDS](docs/screenshots/aws-rds.png)
+
+The API service on ECS:
+
+![ECS api service](docs/screenshots/aws-ecs-api-service.png)
+
+API logs in CloudWatch:
+
+![CloudWatch logs](docs/screenshots/aws-cloudwatch-logs.png)
+
+</details>
+
+## Using it from Claude (MCP)
+
+The MCP server exposes `start_research`, `get_research`, `get_report`, `list_research` and `list_competitors`. Read-only tools are marked as such. The server's instructions tell Claude to confirm the model and cost with the user before starting a paid run, and to reuse existing reports.
+
+![Claude Desktop reviewing a report's market gaps through MCP](docs/screenshots/claude-desktop-market-gaps.png)
+
+<details>
+<summary>More from Claude Desktop</summary>
+
+![Connector installed](docs/screenshots/claude-desktop-connector.png)
+
+![Listing reports](docs/screenshots/claude-desktop-list-reports.png)
+
+</details>
+
+## Limitations and next steps
+
+This is a portfolio project, not a production service:
+
+- **No authentication.** The AWS deployment relies on an IP allow-list and plain HTTP. A real deployment needs a login (for example Cognito on the ALB), OAuth on the MCP endpoint, HTTPS and a per-user spend cap.
+- **Citation support is 0.555.** Claims bundle several facts behind one quote. Next: make the extraction step write one fact per claim and re-run the eval.
+- **Recall is 0.568 and misses market leaders.** Next: add a "known leaders" search before selection.
+- **The eval is noisy for recall.** Recall varies widely between cases (±0.145 at 15 cases × 1 rep). Measuring smaller changes needs more reps or cases.
+- **Haiku and Sonnet aren't evaluated.** Their costs are estimates scaled from Opus, and their quality isn't measured yet.
+- **Gaps in the tooling:** Exa cost isn't tracked, there's no CI pipeline yet, Langfuse isn't part of the cloud deployment, and page text is capped at 15,000 characters.
+
+## Repository map
+
+| Path | What's there |
+| --- | --- |
+| `src/app/research/` | Agent: graph, prompts, verification, Exa search, page cache, model list, telemetry |
+| `src/app/routes/`, `src/app/main.py` | FastAPI app |
+| `src/app/tasks.py` | Celery task |
+| `src/app/models.py`, `src/app/repository.py`, `src/migrations/` | Database schema, persistence, Alembic migrations |
+| `src/app/mcp_server.py` | MCP server |
+| `src/evals/` | Eval cases, runner and grading |
+| `src/tests/` | Offline test suite |
+| `web/` | Next.js frontend |
+| `infra/aws/`, `scripts/aws.sh` | Terraform and the deploy, status and teardown script |
+| `infra/langfuse/` | Self-hosted Langfuse (Compose profile) |
+| `docs/` | Running guide, diagrams (D2 sources and SVGs), screenshots |
+| `.claude/hillclimb/research-report/` | Eval results and metric definitions |
+| `loadtest/` | k6 load test (read endpoints only) |

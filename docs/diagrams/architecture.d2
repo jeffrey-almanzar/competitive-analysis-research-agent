@@ -1,0 +1,39 @@
+direction: down
+
+clients: Clients {
+  grid-columns: 2
+  grid-gap: 40
+  web: Web app (Next.js)
+  desktop: Claude Desktop / Claude Code
+}
+
+mcp: MCP server (5 tools)
+api: "FastAPI\nPOST /research · GET /research/:id"
+redis: "Redis\nCelery broker + page cache" {shape: cylinder}
+pg: "PostgreSQL\nreports · claims · sources · gaps" {shape: cylinder}
+worker: Celery worker
+
+agent: LangGraph agent {
+  grid-columns: 5
+  horizontal-gap: 50
+  plan: plan queries
+  find: find competitors
+  research: "research competitors\n(parallel fan-out)"
+  verify: "verify quotes\n(in code)"
+  gaps: "analyze gaps\n(verified facts only)"
+  plan -> find -> research -> verify -> gaps
+}
+
+claude: "Claude API\nHaiku · Sonnet · Opus 5.5" {shape: cloud}
+exa: "Exa\nsearch + page fetch" {shape: cloud}
+
+clients.web -> api: /api proxy
+clients.desktop -> mcp: stdio / HTTP
+mcp -> api
+api -> redis: enqueue run
+api -> pg: runs + progress
+redis -> worker
+worker -> agent
+worker -> pg: save report
+agent -> claude: structured outputs
+agent -> exa: pages cached in Redis
